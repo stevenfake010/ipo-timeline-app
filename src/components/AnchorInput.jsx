@@ -1,6 +1,6 @@
 // src/components/AnchorInput.jsx
 import React, { useState } from 'react';
-import { Calendar, Calculate } from 'lucide-react';
+import { Calendar, Calculator } from 'lucide-react';
 
 export function AnchorInput({ onGenerate }) {
   const [startDate, setStartDate] = useState('2024-01-15');
@@ -65,7 +65,7 @@ export function AnchorInput({ onGenerate }) {
             type="submit"
             className="w-full md:w-auto px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 flex items-center justify-center gap-2"
           >
-            <Calculate className="w-4 h-4" />
+            <Calculator className="w-4 h-4" />
             生成时间表
           </button>
         </div>
