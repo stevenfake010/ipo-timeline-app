@@ -1,0 +1,15 @@
+[
+  {
+    "id": "hard_001",
+    "type": "delay",
+    "category": "hard_rule",
+    "name": "保荐人聘任协议签署后2个月才能申报A1",
+    "description": "根据港股上市规则，保荐人签完聘任协议后须等待2个月才能提交A1申请",
+    "trigger": "保荐人聘任协议签署",
+    "delayMonths": 2,
+    "result": "可申报A1",
+    "applicableTracks": ["业务"],
+    "tags": ["A1申报", "保荐人"],
+    "enabled": true
+  }
+]

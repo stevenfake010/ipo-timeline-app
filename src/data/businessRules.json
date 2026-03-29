@@ -1,0 +1,29 @@
+[
+  {
+    "id": "biz_001",
+    "type": "duration",
+    "category": "business_rule",
+    "name": "审计工作时长",
+    "description": "审计团队进场后，一般需要60个工作日完成，极端情况可压缩至40天",
+    "taskName": "审计工作",
+    "subItem": "财务审计",
+    "track": "财务",
+    "normalDays": 60,
+    "minDays": 40,
+    "applicableTracks": ["财务"],
+    "tags": ["审计"],
+    "enabled": true
+  },
+  {
+    "id": "biz_002",
+    "type": "sequence",
+    "category": "business_rule",
+    "name": "OSS大纲完成后才能写全稿",
+    "description": "业务条线的OSS(运营总结)须先完成大纲，再撰写全稿",
+    "predecessor": "OSS大纲完成",
+    "successor": "OSS全稿撰写",
+    "applicableTracks": ["业务"],
+    "tags": ["OSS", "业务条线"],
+    "enabled": true
+  }
+]
