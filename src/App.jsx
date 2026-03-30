@@ -1,23 +1,36 @@
 // src/App.jsx
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { AnchorInput } from './components/AnchorInput';
 import { GanttChart } from './components/GanttChart';
 import { TaskTable } from './components/TaskTable';
 import { ExcelExport } from './components/ExcelExport';
+import { RuleEditor } from './components/RuleEditor/RuleEditor';
 import { TaskScheduler } from './engine/TaskScheduler';
 import { differenceInDays, addWeeks } from 'date-fns';
 
 // 导入静态数据
 import defaultRules from './data/defaultRules.json';
-import businessRules from './data/businessRules.json';
+import businessRulesData from './data/businessRules.json';
 import trackTemplates from './data/trackTemplates.json';
+
+const BUSINESS_RULES_KEY = 'ipo_timeline_business_rules';
 
 function App() {
   const [tasks, setTasks] = useState([]);
   const [anchors, setAnchors] = useState(null);
   const [totalWeeks, setTotalWeeks] = useState(0);
+  const [businessRules, setBusinessRules] = useState(() => {
+    // 尝试从 LocalStorage 加载
+    const saved = localStorage.getItem(BUSINESS_RULES_KEY);
+    return saved ? JSON.parse(saved) : businessRulesData;
+  });
 
-  const allRules = useMemo(() => [...defaultRules, ...businessRules], []);
+  // 保存业务规则到 LocalStorage
+  useEffect(() => {
+    localStorage.setItem(BUSINESS_RULES_KEY, JSON.stringify(businessRules));
+  }, [businessRules]);
+
+  const allRules = useMemo(() => [...defaultRules, ...businessRules], [businessRules]);
 
   const handleGenerate = (newAnchors) => {
     setAnchors(newAnchors);
@@ -59,11 +72,20 @@ function App() {
     setTasks([...tasks, newTask]);
   };
 
+  const handleBusinessRulesChange = (newRules) => {
+    setBusinessRules(newRules);
+  };
+
   return (
     <div className="min-h-screen bg-gray-100">
       <header className="bg-white shadow-sm">
-        <div className="max-w-7xl mx-auto px-4 py-4">
+        <div className="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between">
           <h1 className="text-2xl font-bold text-gray-900">IPO 时间表自动生成工具</h1>
+          <RuleEditor
+            defaultRules={defaultRules}
+            businessRules={businessRules}
+            onBusinessRulesChange={handleBusinessRulesChange}
+          />
         </div>
       </header>
 

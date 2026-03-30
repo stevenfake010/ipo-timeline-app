@@ -1,0 +1,1593 @@
+# IPO Timeline Automation — Implementation Plan
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+
+**Goal:** Build a web-based tool that automatically generates weekly IPO execution timelines from three anchor dates, using a rule engine with four rule types, and exports to Excel.
+
+**Architecture:** Pure frontend SPA with React 18 + Tailwind CSS. Rule engine executes in-browser. SheetJS generates Excel exports. LocalStorage handles persistence with JSON import/export for portability.
+
+**Tech Stack:** React 18, Tailwind CSS, Vite, SheetJS (xlsx), date-fns, Lucide React (icons)
+
+---
+
+## File Structure
+
+```
+ipo-timeline-app/
+├── public/
+│   └── vite.svg
+├── src/
+│   ├── components/
+│   │   ├── AnchorInput.jsx
+│   │   ├── GanttChart.jsx
+│   │   ├── TaskTable.jsx
+│   │   ├── RuleEditor/
+│   │   │   ├── RuleList.jsx
+│   │   │   ├── RuleForm.jsx
+│   │   │   ├── DelayRuleForm.jsx
+│   │   │   ├── DurationRuleForm.jsx
+│   │   │   ├── SequenceRuleForm.jsx
+│   │   │   └── ConstraintRuleForm.jsx
+│   │   └── ExcelExport.jsx
+│   ├── engine/
+│   │   ├── RuleEngine.js
+│   │   ├── TaskScheduler.js
+│   │   └── DependencyGraph.js
+│   ├── data/
+│   │   ├── defaultRules.json
+│   │   ├── businessRules.json
+│   │   └── trackTemplates.json
+│   ├── utils/
+│   │   ├── dateUtils.js
+│   │   └── excelGenerator.js
+│   ├── App.jsx
+│   └── main.jsx
+├── index.html
+├── package.json
+├── vite.config.js
+├── tailwind.config.js
+└── postcss.config.js
+```
+
+---
+
+## Task 1: Project Scaffolding
+
+**Files:**
+- Create: `ipo-timeline-app/package.json`
+- Create: `ipo-timeline-app/vite.config.js`
+- Create: `ipo-timeline-app/tailwind.config.js`
+- Create: `ipo-timeline-app/postcss.config.js`
+- Create: `ipo-timeline-app/index.html`
+- Create: `ipo-timeline-app/src/main.jsx`
+
+- [ ] **Step 1: Create package.json**
+
+```json
+{
+  "name": "ipo-timeline-app",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "xlsx": "^0.18.5",
+    "date-fns": "^3.3.0",
+    "lucide-react": "^0.344.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.2.1",
+    "vite": "^5.1.0",
+    "tailwindcss": "^3.4.1",
+    "postcss": "^8.4.35",
+    "autoprefixer": "^10.4.17"
+  }
+}
+```
+
+- [ ] **Step 2: Create vite.config.js**
+
+```javascript
+import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
+
+export default defineConfig({
+  plugins: [react()],
+})
+```
+
+- [ ] **Step 3: Create tailwind.config.js**
+
+```javascript
+export default {
+  content: [
+    "./index.html",
+    "./src/**/*.{js,ts,jsx,tsx}",
+  ],
+  theme: {
+    extend: {},
+  },
+  plugins: [],
+}
+```
+
+- [ ] **Step 4: Create postcss.config.js**
+
+```javascript
+export default {
+  plugins: {
+    tailwindcss: {},
+    autoprefixer: {},
+  },
+}
+```
+
+- [ ] **Step 5: Create index.html**
+
+```html
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>IPO Timeline Automation</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>
+```
+
+- [ ] **Step 6: Create src/main.jsx**
+
+```jsx
+import React from 'react'
+import ReactDOM from 'react-dom/client'
+import App from './App.jsx'
+import './index.css'
+
+ReactDOM.createRoot(document.getElementById('root')).render(
+  <React.StrictMode>
+    <App />
+  </React.StrictMode>,
+)
+```
+
+- [ ] **Step 7: Create src/index.css**
+
+```css
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+```
+
+- [ ] **Step 8: Install dependencies**
+
+Run: `cd ipo-timeline-app && npm install`
+Expected: Dependencies installed successfully
+
+- [ ] **Step 9: Verify dev server**
+
+Run: `cd ipo-timeline-app && npm run dev`
+Expected: Vite dev server starts on localhost:5173
+
+- [ ] **Step 10: Commit**
+
+```bash
+git add -A && git commit -m "feat: scaffold IPO timeline app with React + Vite + Tailwind"
+```
+
+---
+
+## Task 2: Data Models and Types
+
+**Files:**
+- Create: `ipo-timeline-app/src/utils/dataModels.js`
+
+- [ ] **Step 1: Create data models utility**
+
+```javascript
+// src/utils/dataModels.js
+
+/**
+ * @typedef {Object} AnchorDates
+ * @property {Date} startDate - 项目启动时间
+ * @property {Date} baseDate - 项目申报基准日
+ * @property {Date} filingDate - 项目申报时间 (A1)
+ */
+
+/**
+ * @typedef {Object} Task
+ * @property {string} id
+ * @property {string} name
+ * @property {string} track - 业务|法律|财务|综合
+ * @property {string} subItem - 子事项名称
+ * @property {number} startWeek - 开始周 (W1 = 第1周)
+ * @property {number} endWeek - 结束周
+ * @property {string[]} dependencies - 依赖的任务ID列表
+ * @property {boolean} isAutoGenerated
+ * @property {boolean} isUserModified
+ * @property {string} notes
+ */
+
+/**
+ * @typedef {Object} Rule
+ * @property {string} id
+ * @property {'delay'|'duration'|'sequence'|'conditional_constraint'} type
+ * @property {'hard_rule'|'business_rule'} category
+ * @property {string} name
+ * @property {string} description
+ * @property {string[]} applicableTracks
+ * @property {string[]} tags
+ * @property {boolean} enabled
+ */
+
+/**
+ * @typedef {Object} DelayRule extends Rule
+ * @property {string} trigger - 触发事件名称
+ * @property {number} delayMonths - 延迟月数
+ * @property {string} result - 结果事件名称
+ */
+
+/**
+ * @typedef {Object} DurationRule extends Rule
+ * @property {string} taskName - 任务名称
+ * @property {string} subItem - 子事项名称
+ * @property {number} normalDays - 正常所需天数
+ * @property {number} minDays - 最短天数
+ */
+
+/**
+ * @typedef {Object} SequenceRule extends Rule
+ * @property {string} predecessor - 前置任务名称
+ * @property {string} successor - 后继任务名称
+ */
+
+/**
+ * @typedef {Object} ConditionalConstraintRule extends Rule
+ * @property {{ field: string, month: number }} condition
+ * @property {{ field: string, allowedRange: { start: string, end: string } }} constraint
+ */
+
+/**
+ * @typedef {Object} SubItem
+ * @property {string} name
+ * @property {string} track
+ * @property {string[]} tasks
+ */
+
+/**
+ * @typedef {Object} Track
+ * @property {string} name - 业务|法律|财务|综合
+ * @property {string} color - 甘特图颜色
+ * @property {SubItem[]} subItems
+ */
+
+export const TRACKS = ['业务', '法律', '财务', '综合'];
+
+export const TRACK_COLORS = {
+  '业务': 'bg-blue-500',
+  '法律': 'bg-green-500',
+  '财务': 'bg-yellow-500',
+  '综合': 'bg-purple-500',
+};
+
+export const TRACK_BG_COLORS = {
+  '业务': 'bg-blue-50',
+  '法律': 'bg-green-50',
+  '财务': 'bg-yellow-50',
+  '综合': 'bg-purple-50',
+};
+```
+
+- [ ] **Step 2: Commit**
+
+```bash
+git add src/utils/dataModels.js && git commit -m "feat: add data models and TypeScript-like JSDoc types"
+```
+
+---
+
+## Task 3: Date Utilities
+
+**Files:**
+- Create: `ipo-timeline-app/src/utils/dateUtils.js`
+
+- [ ] **Step 1: Create date utilities**
+
+```javascript
+// src/utils/dateUtils.js
+import { addWeeks, addMonths, differenceInDays, startOfWeek, format, parseISO, isValid } from 'date-fns';
+import { zhCN } from 'date-fns/locale';
+
+/**
+ * 计算两个日期之间的周数差
+ * @param {Date} start
+ * @param {Date} end
+ * @returns {number}
+ */
+export function weeksBetween(start, end) {
+  const days = differenceInDays(end, start);
+  return Math.ceil(days / 7);
+}
+
+/**
+ * 获取某一周的周一日期
+ * @param {Date} date
+ * @returns {Date}
+ */
+export function getWeekStart(date) {
+  return startOfWeek(date, { weekStartsOn: 1 }); // 周一为一周开始
+}
+
+/**
+ * 根据锚点日期计算时间线
+ * @param {AnchorDates} anchors
+ * @returns {Map<string, number>} 事件名称到周数的映射
+ */
+export function buildTimelineFromAnchors(anchors) {
+  const { startDate, baseDate, filingDate } = anchors;
+  const timeline = new Map();
+
+  timeline.set('项目启动', 1);
+  timeline.set('基准日', weeksBetween(startDate, baseDate) + 1);
+  timeline.set('A1申报', weeksBetween(startDate, filingDate) + 1);
+
+  return timeline;
+}
+
+/**
+ * 格式化周数为 W1, W2 格式
+ * @param {number} weekNum
+ * @returns {string}
+ */
+export function formatWeek(weekNum) {
+  return `W${weekNum}`;
+}
+
+/**
+ * 获取指定周的具体日期范围
+ * @param {Date} projectStart - 项目开始日期
+ * @param {number} weekNum - 周数 (1-based)
+ * @returns {{ start: Date, end: Date, label: string }}
+ */
+export function getWeekDateRange(projectStart, weekNum) {
+  const weekStart = addWeeks(projectStart, weekNum - 1);
+  const weekEnd = addWeeks(weekStart, 1);
+  return {
+    start: weekStart,
+    end: weekEnd,
+    label: `${format(weekStart, 'M/dd')} - ${format(weekEnd, 'M/dd')}`,
+  };
+}
+
+/**
+ * 检查日期是否有效
+ * @param {any} date
+ * @returns {boolean}
+ */
+export function isValidDate(date) {
+  if (!date) return false;
+  const d = typeof date === 'string' ? parseISO(date) : date;
+  return isValid(d);
+}
+```
+
+- [ ] **Step 2: Commit**
+
+```bash
+git add src/utils/dateUtils.js && git commit -m "feat: add date utilities for week calculations"
+```
+
+---
+
+## Task 4: Built-in Rules Data
+
+**Files:**
+- Create: `ipo-timeline-app/src/data/defaultRules.json`
+- Create: `ipo-timeline-app/src/data/businessRules.json`
+- Create: `ipo-timeline-app/src/data/trackTemplates.json`
+
+- [ ] **Step 1: Create defaultRules.json (硬性规定)**
+
+```json
+[
+  {
+    "id": "hard_001",
+    "type": "delay",
+    "category": "hard_rule",
+    "name": "保荐人聘任协议签署后2个月才能申报A1",
+    "description": "根据港股上市规则，保荐人签完聘任协议后须等待2个月才能提交A1申请",
+    "trigger": "保荐人聘任协议签署",
+    "delayMonths": 2,
+    "result": "可申报A1",
+    "applicableTracks": ["业务"],
+    "tags": ["A1申报", "保荐人"],
+    "enabled": true
+  }
+]
+```
+
+- [ ] **Step 2: Create businessRules.json (业务规则，可编辑)**
+
+```json
+[
+  {
+    "id": "biz_001",
+    "type": "duration",
+    "category": "business_rule",
+    "name": "审计工作时长",
+    "description": "审计团队进场后，一般需要60个工作日完成，极端情况可压缩至40天",
+    "taskName": "审计工作",
+    "subItem": "财务审计",
+    "track": "财务",
+    "normalDays": 60,
+    "minDays": 40,
+    "applicableTracks": ["财务"],
+    "tags": ["审计"],
+    "enabled": true
+  },
+  {
+    "id": "biz_002",
+    "type": "sequence",
+    "category": "business_rule",
+    "name": "OSS大纲完成后才能写全稿",
+    "description": "业务条线的OSS(运营总结)须先完成大纲，再撰写全稿",
+    "predecessor": "OSS大纲完成",
+    "successor": "OSS全稿撰写",
+    "applicableTracks": ["业务"],
+    "tags": ["OSS", "业务条线"],
+    "enabled": true
+  }
+]
+```
+
+- [ ] **Step 3: Create trackTemplates.json (条线和子事项模板)**
+
+```json
+{
+  "tracks": [
+    {
+      "name": "业务",
+      "color": "blue",
+      "subItems": [
+        {
+          "name": "尽职调查",
+          "tasks": ["启动尽调", "收集资料", "访谈管理层", "编写尽调报告"]
+        },
+        {
+          "name": "客户访谈",
+          "tasks": ["制定访谈计划", "执行访谈", "访谈纪要整理"]
+        },
+        {
+          "name": "行业分析",
+          "tasks": ["市场调研", "竞争对手分析", "行业报告撰写"]
+        },
+        {
+          "name": "OSS撰写",
+          "tasks": ["OSS大纲编写", "OSS大纲审核", "OSS全稿撰写", "OSS全稿审核"]
+        },
+        {
+          "name": "招股说明书",
+          "tasks": ["初稿撰写", "内部审核", "律师审核", "定稿"]
+        }
+      ]
+    },
+    {
+      "name": "法律",
+      "color": "green",
+      "subItems": [
+        {
+          "name": "法律尽职调查",
+          "tasks": ["法律尽调启动", "收集法律文件", "法律问题梳理", "法律尽调报告"]
+        },
+        {
+          "name": "协议起草",
+          "tasks": ["重组协议", "承销协议", "聘任协议", "协议审核"]
+        },
+        {
+          "name": "监管审批",
+          "tasks": ["材料准备", "证监会沟通", "审批跟踪", "批文获取"]
+        }
+      ]
+    },
+    {
+      "name": "财务",
+      "color": "yellow",
+      "subItems": [
+        {
+          "name": "财务审计",
+          "tasks": ["审计师进场", "财务数据收集", "审计报告初稿", "审计报告定稿"]
+        },
+        {
+          "name": "财务尽调",
+          "tasks": ["财务尽调启动", "现金流分析", "负债分析", "财务尽调报告"]
+        },
+        {
+          "name": "估值",
+          "tasks": ["估值模型搭建", "估值结果审核", "估值报告"]
+        }
+      ]
+    },
+    {
+      "name": "综合",
+      "color": "purple",
+      "subItems": [
+        {
+          "name": "项目协调",
+          "tasks": ["项目启动会", "定期协调会", "进度汇报"]
+        },
+        {
+          "name": "文件汇总",
+          "tasks": ["各条线材料收集", "整合审核", "终稿定稿"]
+        },
+        {
+          "name": "上市仪式",
+          "tasks": ["仪式准备", "彩排", "正式上市"]
+        }
+      ]
+    }
+  ]
+}
+```
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add src/data/ && git commit -m "feat: add rule templates and track structure data"
+```
+
+---
+
+## Task 5: Rule Engine Core
+
+**Files:**
+- Create: `ipo-timeline-app/src/engine/RuleEngine.js`
+- Create: `ipo-timeline-app/src/engine/DependencyGraph.js`
+- Create: `ipo-timeline-app/src/engine/TaskScheduler.js`
+
+- [ ] **Step 1: Create RuleEngine.js**
+
+```javascript
+// src/engine/RuleEngine.js
+import { addMonths } from 'date-fns';
+
+/**
+ * 规则引擎 - 执行四类规则
+ */
+export class RuleEngine {
+  constructor(rules) {
+    this.rules = rules.filter(r => r.enabled);
+  }
+
+  /**
+   * 执行延迟规则
+   * @param {DelayRule} rule
+   * @param {Map<string, Date>} eventDates
+   * @returns {Date|null}
+   */
+  executeDelayRule(rule, eventDates) {
+    const triggerDate = eventDates.get(rule.trigger);
+    if (!triggerDate) return null;
+    return addMonths(triggerDate, rule.delayMonths);
+  }
+
+  /**
+   * 执行时长规则 - 返回天数范围
+   * @param {DurationRule} rule
+   * @returns {{ normal: number, min: number }}
+   */
+  executeDurationRule(rule) {
+    return {
+      normal: rule.normalDays,
+      min: rule.minDays,
+    };
+  }
+
+  /**
+   * 执行顺序规则 - 返回依赖关系
+   * @param {SequenceRule} rule
+   * @returns {{ predecessor: string, successor: string }}
+   */
+  executeSequenceRule(rule) {
+    return {
+      predecessor: rule.predecessor,
+      successor: rule.successor,
+    };
+  }
+
+  /**
+   * 执行条件约束规则
+   * @param {ConditionalConstraintRule} rule
+   * @param {AnchorDates} anchors
+   * @returns {boolean}
+   */
+  executeConditionalConstraint(rule, anchors) {
+    const { condition, constraint } = rule;
+    let conditionMet = false;
+
+    if (condition.field === 'reportingBaseDate') {
+      conditionMet = anchors.baseDate.getMonth() + 1 === condition.month;
+    }
+
+    return conditionMet;
+  }
+
+  /**
+   * 获取所有适用的延迟规则
+   * @param {string} track
+   * @returns {DelayRule[]}
+   */
+  getDelayRules(track) {
+    return this.rules.filter(
+      r => r.type === 'delay' &&
+           r.applicableTracks.includes(track) &&
+           r.category === 'hard_rule'
+    );
+  }
+
+  /**
+   * 获取所有适用的时长规则
+   * @param {string} track
+   * @returns {DurationRule[]}
+   */
+  getDurationRules(track) {
+    return this.rules.filter(
+      r => r.type === 'duration' &&
+           r.applicableTracks.includes(track)
+    );
+  }
+
+  /**
+   * 获取所有顺序规则
+   * @returns {SequenceRule[]}
+   */
+  getSequenceRules() {
+    return this.rules.filter(r => r.type === 'sequence');
+  }
+
+  /**
+   * 获取所有条件约束规则
+   * @param {AnchorDates} anchors
+   * @returns {ConditionalConstraintRule[]}
+   */
+  getConditionalConstraints(anchors) {
+    return this.rules.filter(
+      r => r.type === 'conditional_constraint' &&
+           this.executeConditionalConstraint(r, anchors)
+    );
+  }
+}
+```
+
+- [ ] **Step 2: Create DependencyGraph.js**
+
+```javascript
+// src/engine/DependencyGraph.js
+import { RuleEngine } from './RuleEngine';
+
+/**
+ * 依赖图构建器 - 将规则转换为任务依赖关系
+ */
+export class DependencyGraph {
+  constructor(rules) {
+    this.ruleEngine = new RuleEngine(rules);
+    this.dependencies = new Map(); // taskName -> [predecessor names]
+    this.durations = new Map(); // taskName -> { normal, min }
+  }
+
+  /**
+   * 从规则构建依赖图
+   * @param {AnchorDates} anchors
+   */
+  buildFromRules(anchors) {
+    // 处理顺序规则
+    const sequenceRules = this.ruleEngine.getSequenceRules();
+    for (const rule of sequenceRules) {
+      this.addDependency(rule.successor, rule.predecessor);
+    }
+
+    // 处理时长规则
+    const durationRules = this.ruleEngine.getDurationRules('all');
+    for (const rule of this.ruleEngine.rules) {
+      if (rule.type === 'duration') {
+        const duration = this.ruleEngine.executeDurationRule(rule);
+        this.durations.set(rule.taskName, duration);
+      }
+    }
+
+    // 处理条件约束（用于后续校验）
+    const constraints = this.ruleEngine.getConditionalConstraints(anchors);
+    this.constraints = constraints;
+  }
+
+  /**
+   * 添加依赖关系
+   * @param {string} successor
+   * @param {string} predecessor
+   */
+  addDependency(successor, predecessor) {
+    if (!this.dependencies.has(successor)) {
+      this.dependencies.set(successor, []);
+    }
+    this.dependencies.get(successor).push(predecessor);
+  }
+
+  /**
+   * 获取任务的所有前置依赖
+   * @param {string} taskName
+   * @returns {string[]}
+   */
+  getDependencies(taskName) {
+    return this.dependencies.get(taskName) || [];
+  }
+
+  /**
+   * 获取任务时长
+   * @param {string} taskName
+   * @returns {{ normal: number, min: number }}
+   */
+  getDuration(taskName) {
+    return this.durations.get(taskName) || { normal: 30, min: 20 };
+  }
+}
+```
+
+- [ ] **Step 3: Create TaskScheduler.js**
+
+```javascript
+// src/engine/TaskScheduler.js
+import { addDays, addWeeks } from 'date-fns';
+import { DependencyGraph } from './DependencyGraph';
+
+/**
+ * 任务排程器 - 基于锚点日期和规则计算任务时间表
+ */
+export class TaskScheduler {
+  constructor(anchors, rules, trackTemplates) {
+    this.anchors = anchors;
+    this.rules = rules;
+    this.trackTemplates = trackTemplates;
+    this.depGraph = new DependencyGraph(rules);
+    this.tasks = [];
+  }
+
+  /**
+   * 生成完整时间表
+   * @returns {Task[]}
+   */
+  generate() {
+    // 1. 构建依赖图
+    this.depGraph.buildFromRules(this.anchors);
+
+    // 2. 从模板生成基础任务
+    this.generateBaseTasks();
+
+    // 3. 应用规则调整
+    this.applyRules();
+
+    // 4. 计算具体日期
+    this.calculateDates();
+
+    return this.tasks;
+  }
+
+  /**
+   * 从模板生成基础任务
+   */
+  generateBaseTasks() {
+    let taskId = 1;
+
+    for (const track of this.trackTemplates.tracks) {
+      for (const subItem of track.subItems) {
+        for (const taskName of subItem.tasks) {
+          this.tasks.push({
+            id: `task_${taskId++}`,
+            name: taskName,
+            track: track.name,
+            subItem: subItem.name,
+            startWeek: 0,
+            endWeek: 0,
+            dependencies: this.depGraph.getDependencies(taskName),
+            duration: this.depGraph.getDuration(taskName),
+            isAutoGenerated: true,
+            isUserModified: false,
+            notes: '',
+          });
+        }
+      }
+    }
+  }
+
+  /**
+   * 应用规则调整任务
+   */
+  applyRules() {
+    // 延迟规则应用
+    const delayRules = this.rules.filter(r => r.type === 'delay');
+    for (const rule of delayRules) {
+      // 找到触发任务和结果任务，建立依赖
+      const triggerTask = this.tasks.find(t => t.name === rule.trigger);
+      const resultTask = this.tasks.find(t => t.name === rule.result);
+      if (triggerTask && resultTask) {
+        if (!resultTask.dependencies.includes(triggerTask.id)) {
+          resultTask.dependencies.push(triggerTask.id);
+        }
+      }
+    }
+  }
+
+  /**
+   * 计算任务的开始和结束周
+   */
+  calculateDates() {
+    // 简化实现：按条线并行推进
+    const startDate = this.anchors.startDate;
+    const filingDate = this.anchors.filingDate;
+    const totalWeeks = Math.ceil((filingDate - startDate) / (7 * 24 * 60 * 60 * 1000));
+
+    // 按条线分配时间片（简化：各条线并行，均匀分配）
+    const weeksPerTrack = Math.floor(totalWeeks * 0.8); // 留出20%缓冲
+
+    for (const track of ['业务', '法律', '财务', '综合']) {
+      const trackTasks = this.tasks.filter(t => t.track === track);
+      const taskCount = trackTasks.length;
+      const weeksPerTask = Math.floor(weeksPerTrack / taskCount);
+
+      let currentWeek = 1;
+      for (const task of trackTasks) {
+        const duration = task.duration || { normal: weeksPerTask, min: Math.floor(weeksPerTask * 0.7) };
+        task.startWeek = currentWeek;
+        task.endWeek = currentWeek + Math.floor(duration.normal / 7);
+        currentWeek = task.endWeek + 1;
+      }
+    }
+  }
+
+  /**
+   * 获取指定条线的任务
+   * @param {string} track
+   * @returns {Task[]}
+   */
+  getTasksByTrack(track) {
+    return this.tasks.filter(t => t.track === track);
+  }
+
+  /**
+   * 获取指定周的任务
+   * @param {number} week
+   * @returns {Task[]}
+   */
+  getTasksByWeek(week) {
+    return this.tasks.filter(t => t.startWeek <= week && t.endWeek >= week);
+  }
+}
+```
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add src/engine/ && git commit -m "feat: implement rule engine with dependency graph and task scheduler"
+```
+
+---
+
+## Task 6: Anchor Input Component
+
+**Files:**
+- Create: `ipo-timeline-app/src/components/AnchorInput.jsx`
+
+- [ ] **Step 1: Create AnchorInput.jsx**
+
+```jsx
+// src/components/AnchorInput.jsx
+import React, { useState } from 'react';
+import { Calendar, Calculate } from 'lucide-react';
+
+export function AnchorInput({ onGenerate }) {
+  const [startDate, setStartDate] = useState('2024-01-15');
+  const [baseDate, setBaseDate] = useState('2024-03-31');
+  const [filingDate, setFilingDate] = useState('2024-06-30');
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    onGenerate({
+      startDate: new Date(startDate),
+      baseDate: new Date(baseDate),
+      filingDate: new Date(filingDate),
+    });
+  };
+
+  return (
+    <div className="bg-white rounded-lg shadow p-6">
+      <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
+        <Calendar className="w-5 h-5" />
+        项目锚点设置
+      </h2>
+
+      <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            项目启动时间
+          </label>
+          <input
+            type="date"
+            value={startDate}
+            onChange={(e) => setStartDate(e.target.value)}
+            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            项目申报基准日
+          </label>
+          <input
+            type="date"
+            value={baseDate}
+            onChange={(e) => setBaseDate(e.target.value)}
+            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            项目申报时间 (A1)
+          </label>
+          <input
+            type="date"
+            value={filingDate}
+            onChange={(e) => setFilingDate(e.target.value)}
+            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+        </div>
+
+        <div className="md:col-span-3 mt-4">
+          <button
+            type="submit"
+            className="w-full md:w-auto px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 flex items-center justify-center gap-2"
+          >
+            <Calculate className="w-4 h-4" />
+            生成时间表
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+```
+
+- [ ] **Step 2: Commit**
+
+```bash
+git add src/components/AnchorInput.jsx && git commit -m "feat: add AnchorInput component for date entry"
+```
+
+---
+
+## Task 7: Gantt Chart Component
+
+**Files:**
+- Create: `ipo-timeline-app/src/components/GanttChart.jsx`
+
+- [ ] **Step 1: Create GanttChart.jsx**
+
+```jsx
+// src/components/GanttChart.jsx
+import React, { useMemo } from 'react';
+import { TRACK_COLORS, TRACK_BG_COLORS } from '../utils/dataModels';
+import { getWeekDateRange } from '../utils/dateUtils';
+
+export function GanttChart({ tasks, startDate, totalWeeks }) {
+  // 按条线和子事项组织任务
+  const groupedTasks = useMemo(() => {
+    const groups = {};
+    for (const task of tasks) {
+      if (!groups[task.track]) groups[task.track] = {};
+      if (!groups[task.track][task.subItem]) groups[task.track][task.subItem] = [];
+      groups[task.track][task.subItem].push(task);
+    }
+    return groups;
+  }, [tasks]);
+
+  // 生成周列表
+  const weeks = useMemo(() => {
+    const result = [];
+    for (let i = 1; i <= totalWeeks; i++) {
+      result.push(getWeekDateRange(startDate, i));
+    }
+    return result;
+  }, [startDate, totalWeeks]);
+
+  return (
+    <div className="bg-white rounded-lg shadow overflow-hidden">
+      <div className="p-4 border-b">
+        <h2 className="text-lg font-semibold">项目时间表 (甘特图)</h2>
+      </div>
+
+      <div className="overflow-x-auto">
+        <div className="min-w-full">
+          {/* 周标题行 */}
+          <div className="flex border-b bg-gray-50">
+            <div className="w-48 shrink-0 px-4 py-2 font-medium text-sm">条线/事项</div>
+            <div className="flex-1 flex">
+              {weeks.map((week, idx) => (
+                <div
+                  key={idx}
+                  className="flex-1 px-1 py-2 text-center text-xs text-gray-600 border-l"
+                >
+                  <div className="font-medium">W{idx + 1}</div>
+                  <div className="text-xs text-gray-400">{week.label}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* 甘特图内容 */}
+          {Object.entries(groupedTasks).map(([track, subItems]) => (
+            <div key={track} className="border-b">
+              {/* 条线标题 */}
+              <div className={`flex items-center px-4 py-2 ${TRACK_BG_COLORS[track]}`}>
+                <span className={`w-3 h-3 rounded-full ${TRACK_COLORS[track]} mr-2`}></span>
+                <span className="font-semibold">{track}条线</span>
+              </div>
+
+              {/* 子事项和任务 */}
+              {Object.entries(subItems).map(([subItem, subTasks]) => (
+                <div key={subItem}>
+                  <div className="flex">
+                    <div className="w-48 shrink-0 px-4 py-1 text-sm text-gray-600 border-r bg-gray-50">
+                      {subItem}
+                    </div>
+                    <div className="flex-1 flex relative">
+                      {weeks.map((_, weekIdx) => (
+                        <div
+                          key={weekIdx}
+                          className="flex-1 h-8 border-l"
+                        >
+                          {/* 任务条渲染 */}
+                          {subTasks.map((task) => {
+                            if (task.startWeek <= weekIdx + 1 && task.endWeek >= weekIdx + 1) {
+                              const isStart = task.startWeek === weekIdx + 1;
+                              const isEnd = task.endWeek === weekIdx + 1;
+                              return (
+                                <div
+                                  key={task.id}
+                                  className={`absolute h-6 top-1 ${TRACK_COLORS[track]} rounded ${
+                                    isStart ? 'ml-1' : ''
+                                  } ${isEnd ? 'mr-1' : ''} ${!(isStart || isEnd) ? 'ml-0 mr-0 w-full' : ''}`}
+                                  style={{
+                                    left: isStart ? '4px' : '0',
+                                    right: isEnd ? '4px' : '0',
+                                    width: isStart && isEnd ? 'calc(100% - 8px)' : isStart ? 'auto' : '0',
+                                  }}
+                                  title={`${task.name} (W${task.startWeek}-W${task.endWeek})`}
+                                />
+                              );
+                            }
+                            return null;
+                          })}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+```
+
+- [ ] **Step 2: Commit**
+
+```bash
+git add src/components/GanttChart.jsx && git commit -m "feat: add GanttChart component for timeline visualization"
+```
+
+---
+
+## Task 8: Task Table Component
+
+**Files:**
+- Create: `ipo-timeline-app/src/components/TaskTable.jsx`
+
+- [ ] **Step 1: Create TaskTable.jsx**
+
+```jsx
+// src/components/TaskTable.jsx
+import React, { useState } from 'react';
+import { Edit2, Trash2, Plus, Save, X } from 'lucide-react';
+
+export function TaskTable({ tasks, onUpdateTask, onDeleteTask, onAddTask }) {
+  const [editingId, setEditingId] = useState(null);
+  const [editForm, setEditForm] = useState({});
+
+  const handleEdit = (task) => {
+    setEditingId(task.id);
+    setEditForm({ ...task });
+  };
+
+  const handleSave = () => {
+    onUpdateTask(editForm);
+    setEditingId(null);
+  };
+
+  const handleCancel = () => {
+    setEditingId(null);
+    setEditForm({});
+  };
+
+  return (
+    <div className="bg-white rounded-lg shadow">
+      <div className="p-4 border-b flex justify-between items-center">
+        <h2 className="text-lg font-semibold">详细任务列表</h2>
+        <button
+          onClick={onAddTask}
+          className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 flex items-center gap-2"
+        >
+          <Plus className="w-4 h-4" />
+          添加自定义任务
+        </button>
+      </div>
+
+      <div className="overflow-x-auto">
+        <table className="min-w-full">
+          <thead className="bg-gray-50">
+            <tr>
+              <th className="px-4 py-2 text-left text-sm font-medium text-gray-600">任务名称</th>
+              <th className="px-4 py-2 text-left text-sm font-medium text-gray-600">条线</th>
+              <th className="px-4 py-2 text-left text-sm font-medium text-gray-600">子事项</th>
+              <th className="px-4 py-2 text-left text-sm font-medium text-gray-600">开始周</th>
+              <th className="px-4 py-2 text-left text-sm font-medium text-gray-600">结束周</th>
+              <th className="px-4 py-2 text-left text-sm font-medium text-gray-600">操作</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y">
+            {tasks.map((task) => (
+              <tr key={task.id} className="hover:bg-gray-50">
+                {editingId === task.id ? (
+                  <>
+                    <td className="px-4 py-2">
+                      <input
+                        type="text"
+                        value={editForm.name}
+                        onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
+                        className="w-full px-2 py-1 border rounded"
+                      />
+                    </td>
+                    <td className="px-4 py-2">
+                      <select
+                        value={editForm.track}
+                        onChange={(e) => setEditForm({ ...editForm, track: e.target.value })}
+                        className="w-full px-2 py-1 border rounded"
+                      >
+                        <option value="业务">业务</option>
+                        <option value="法律">法律</option>
+                        <option value="财务">财务</option>
+                        <option value="综合">综合</option>
+                      </select>
+                    </td>
+                    <td className="px-4 py-2">
+                      <input
+                        type="text"
+                        value={editForm.subItem}
+                        onChange={(e) => setEditForm({ ...editForm, subItem: e.target.value })}
+                        className="w-full px-2 py-1 border rounded"
+                      />
+                    </td>
+                    <td className="px-4 py-2">
+                      <input
+                        type="number"
+                        value={editForm.startWeek}
+                        onChange={(e) => setEditForm({ ...editForm, startWeek: parseInt(e.target.value) })}
+                        className="w-full px-2 py-1 border rounded"
+                        min="1"
+                      />
+                    </td>
+                    <td className="px-4 py-2">
+                      <input
+                        type="number"
+                        value={editForm.endWeek}
+                        onChange={(e) => setEditForm({ ...editForm, endWeek: parseInt(e.target.value) })}
+                        className="w-full px-2 py-1 border rounded"
+                        min="1"
+                      />
+                    </td>
+                    <td className="px-4 py-2">
+                      <div className="flex gap-2">
+                        <button onClick={handleSave} className="text-green-600 hover:text-green-800">
+                          <Save className="w-4 h-4" />
+                        </button>
+                        <button onClick={handleCancel} className="text-gray-600 hover:text-gray-800">
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </td>
+                  </>
+                ) : (
+                  <>
+                    <td className="px-4 py-2 text-sm">{task.name}</td>
+                    <td className="px-4 py-2 text-sm">{task.track}</td>
+                    <td className="px-4 py-2 text-sm">{task.subItem}</td>
+                    <td className="px-4 py-2 text-sm">W{task.startWeek}</td>
+                    <td className="px-4 py-2 text-sm">W{task.endWeek}</td>
+                    <td className="px-4 py-2">
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => handleEdit(task)}
+                          className="text-blue-600 hover:text-blue-800"
+                        >
+                          <Edit2 className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => onDeleteTask(task.id)}
+                          className="text-red-600 hover:text-red-800"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </td>
+                  </>
+                )}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+```
+
+- [ ] **Step 2: Commit**
+
+```bash
+git add src/components/TaskTable.jsx && git commit -m "feat: add TaskTable component with inline editing"
+```
+
+---
+
+## Task 9: Excel Export Utility
+
+**Files:**
+- Create: `ipo-timeline-app/src/utils/excelGenerator.js`
+- Create: `ipo-timeline-app/src/components/ExcelExport.jsx`
+
+- [ ] **Step 1: Create excelGenerator.js**
+
+```javascript
+// src/utils/excelGenerator.js
+import * as XLSX from 'xlsx';
+import { format } from 'date-fns';
+
+const TRACK_COLORS_HEX = {
+  '业务': '4472C4',
+  '法律': '70AD47',
+  '财务': 'FFC000',
+  '综合': '7030A0',
+};
+
+/**
+ * 生成 Excel 文件
+ * @param {Task[]} tasks
+ * @param {AnchorDates} anchors
+ * @param {number} totalWeeks
+ * @returns {Blob}
+ */
+export function generateExcel(tasks, anchors, totalWeeks) {
+  const wb = XLSX.utils.book_new();
+
+  // Sheet 1: 甘特图数据
+  const ganttData = buildGanttSheet(tasks, anchors, totalWeeks);
+  const ws1 = XLSX.utils.aoa_to_sheet(ganttData);
+  XLSX.utils.book_append_sheet(wb, ws1, '甘特图');
+
+  // Sheet 2: 详细任务列表
+  const taskData = buildTaskListSheet(tasks);
+  const ws2 = XLSX.utils.aoa_to_sheet(taskData);
+  XLSX.utils.book_append_sheet(wb, ws2, '任务列表');
+
+  // 生成文件
+  const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+  return new Blob([wbout], { type: 'application/octet-stream' });
+}
+
+function buildGanttSheet(tasks, anchors, totalWeeks) {
+  const data = [];
+
+  // 标题行
+  data.push(['IPO项目时间表']);
+  data.push([
+    '条线', '子事项', '任务',
+    ...Array.from({ length: totalWeeks }, (_, i) => `W${i + 1}`)
+  ]);
+
+  // 按条线和子事项分组
+  const grouped = {};
+  for (const task of tasks) {
+    const key = `${task.track}|${task.subItem}`;
+    if (!grouped[key]) grouped[key] = [];
+    grouped[key].push(task);
+  }
+
+  // 数据行
+  for (const [key, groupTasks] of Object.entries(grouped)) {
+    const [track, subItem] = key.split('|');
+    for (const task of groupTasks) {
+      const row = [track, subItem, task.name];
+      for (let w = 1; w <= totalWeeks; w++) {
+        if (task.startWeek <= w && task.endWeek >= w) {
+          row.push('█');
+        } else {
+          row.push('');
+        }
+      }
+      data.push(row);
+    }
+  }
+
+  return data;
+}
+
+function buildTaskListSheet(tasks) {
+  const data = [
+    ['任务名称', '条线', '子事项', '开始周', '结束周', '持续周数', '是否自动生成', '备注']
+  ];
+
+  for (const task of tasks) {
+    data.push([
+      task.name,
+      task.track,
+      task.subItem,
+      `W${task.startWeek}`,
+      `W${task.endWeek}`,
+      task.endWeek - task.startWeek + 1,
+      task.isAutoGenerated ? '是' : '否',
+      task.notes || ''
+    ]);
+  }
+
+  return data;
+}
+
+/**
+ * 触发下载
+ * @param {Blob} blob
+ * @param {string} filename
+ */
+export function downloadBlob(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+```
+
+- [ ] **Step 2: Create ExcelExport.jsx**
+
+```jsx
+// src/components/ExcelExport.jsx
+import React from 'react';
+import { Download } from 'lucide-react';
+import { generateExcel, downloadBlob } from '../utils/excelGenerator';
+
+export function ExcelExport({ tasks, anchors, totalWeeks }) {
+  const handleExport = () => {
+    const blob = generateExcel(tasks, anchors, totalWeeks);
+    const filename = `IPO时间表_${new Date().toISOString().split('T')[0]}.xlsx`;
+    downloadBlob(blob, filename);
+  };
+
+  return (
+    <button
+      onClick={handleExport}
+      className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 flex items-center gap-2"
+    >
+      <Download className="w-4 h-4" />
+      导出Excel
+    </button>
+  );
+}
+```
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add src/utils/excelGenerator.js src/components/ExcelExport.jsx && git commit -m "feat: add Excel export functionality with SheetJS"
+```
+
+---
+
+## Task 10: Main App Component
+
+**Files:**
+- Create: `ipo-timeline-app/src/App.jsx`
+
+- [ ] **Step 1: Create App.jsx**
+
+```jsx
+// src/App.jsx
+import React, { useState, useMemo } from 'react';
+import { AnchorInput } from './components/AnchorInput';
+import { GanttChart } from './components/GanttChart';
+import { TaskTable } from './components/TaskTable';
+import { ExcelExport } from './components/ExcelExport';
+import { TaskScheduler } from './engine/TaskScheduler';
+import { differenceInDays, addWeeks } from 'date-fns';
+
+// 导入静态数据
+import defaultRules from './data/defaultRules.json';
+import businessRules from './data/businessRules.json';
+import trackTemplates from './data/trackTemplates.json';
+
+function App() {
+  const [tasks, setTasks] = useState([]);
+  const [anchors, setAnchors] = useState(null);
+  const [totalWeeks, setTotalWeeks] = useState(0);
+
+  const allRules = useMemo(() => [...defaultRules, ...businessRules], []);
+
+  const handleGenerate = (newAnchors) => {
+    setAnchors(newAnchors);
+
+    // 计算总周数
+    const weeks = Math.ceil(
+      differenceInDays(newAnchors.filingDate, newAnchors.startDate) / 7
+    );
+    setTotalWeeks(weeks);
+
+    // 生成任务
+    const scheduler = new TaskScheduler(newAnchors, allRules, trackTemplates);
+    const generatedTasks = scheduler.generate();
+    setTasks(generatedTasks);
+  };
+
+  const handleUpdateTask = (updatedTask) => {
+    setTasks(tasks.map(t => t.id === updatedTask.id ? updatedTask : t));
+  };
+
+  const handleDeleteTask = (taskId) => {
+    setTasks(tasks.filter(t => t.id !== taskId));
+  };
+
+  const handleAddTask = () => {
+    const newTask = {
+      id: `task_custom_${Date.now()}`,
+      name: '新任务',
+      track: '业务',
+      subItem: '其他',
+      startWeek: 1,
+      endWeek: 2,
+      dependencies: [],
+      duration: { normal: 7, min: 5 },
+      isAutoGenerated: false,
+      isUserModified: false,
+      notes: '',
+    };
+    setTasks([...tasks, newTask]);
+  };
+
+  return (
+    <div className="min-h-screen bg-gray-100">
+      <header className="bg-white shadow-sm">
+        <div className="max-w-7xl mx-auto px-4 py-4">
+          <h1 className="text-2xl font-bold text-gray-900">IPO 时间表自动生成工具</h1>
+        </div>
+      </header>
+
+      <main className="max-w-7xl mx-auto px-4 py-6 space-y-6">
+        <AnchorInput onGenerate={handleGenerate} />
+
+        {tasks.length > 0 && anchors && (
+          <>
+            <div className="flex justify-end">
+              <ExcelExport tasks={tasks} anchors={anchors} totalWeeks={totalWeeks} />
+            </div>
+
+            <GanttChart
+              tasks={tasks}
+              startDate={anchors.startDate}
+              totalWeeks={totalWeeks}
+            />
+
+            <TaskTable
+              tasks={tasks}
+              onUpdateTask={handleUpdateTask}
+              onDeleteTask={handleDeleteTask}
+              onAddTask={handleAddTask}
+            />
+          </>
+        )}
+
+        {tasks.length === 0 && (
+          <div className="text-center py-12 text-gray-500">
+            请输入项目锚点信息，点击"生成时间表"开始
+          </div>
+        )}
+      </main>
+    </div>
+  );
+}
+
+export default App;
+```
+
+- [ ] **Step 2: Commit**
+
+```bash
+git add src/App.jsx && git commit -m "feat: integrate all components in main App"
+```
+
+---
+
+## Task 11: Final Verification
+
+- [ ] **Step 1: Run build to verify no errors**
+
+Run: `cd ipo-timeline-app && npm run build`
+Expected: Build completes without errors
+
+- [ ] **Step 2: Test dev server**
+
+Run: `cd ipo-timeline-app && npm run dev`
+Expected: Dev server starts, no console errors
+
+- [ ] **Step 3: Test full workflow**
+
+1. Open http://localhost:5173
+2. Enter three anchor dates
+3. Click "生成时间表"
+4. Verify Gantt chart renders
+5. Verify Task table shows tasks
+6. Click "导出Excel" and verify file downloads
+
+---
+
+## Task 12: Push to GitHub
+
+**Files:**
+- Modify: `ipo-timeline-app/` (new repo)
+
+- [ ] **Step 1: Initialize git and commit**
+
+Run:
+```bash
+cd ipo-timeline-app
+git init
+git add -A
+git commit -m "feat: IPO timeline automation MVP"
+```
+
+- [ ] **Step 2: Create GitHub repo and push**
+
+Run (replace with your GitHub username):
+```bash
+git remote add origin https://github.com/<username>/ipo-timeline-app.git
+git branch -M main
+git push -u origin main
+```
+
+---
+
+## Implementation Complete
+
+Total: 12 tasks across 4 phases:
+- **Phase 1**: Scaffolding, Data Models, Date Utils, Rules Data
+- **Phase 2**: Rule Engine (RuleEngine, DependencyGraph, TaskScheduler)
+- **Phase 3**: UI Components (AnchorInput, GanttChart, TaskTable, ExcelExport)
+- **Phase 4**: Integration (App.jsx), Verification, GitHub Push
