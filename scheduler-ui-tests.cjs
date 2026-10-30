@@ -145,5 +145,15 @@ function cloudStub(version,tag){
     assert.equal(box.state['ipo-scheduler-plans-v1'],before,'动过的方案不应被云端替换');
   });
 
+  await testAsync('云端落到内置兜底时不假装切换、不弹提示',async()=>{
+    const builtin={load:async()=>{await new Promise(r=>setTimeout(r,20));
+      return {mode:'builtin',release:null,data:{rules:seed,agenda:[],calendars:{hk:CAL,cn:CAL,us:CAL}}};}};
+    const box=boot(undefined,builtin);
+    await new Promise(r=>setTimeout(r,120));
+    assert.equal(box.els.eventCount.textContent,seed.events.length+' 个事件','兜底时界面照常可用');
+    assert.ok(String(box.els.snapshotInfo.textContent).includes('内置'),'来源仍应是内置包');
+    assert.ok(!String(box.els.toast.textContent).includes('已切换到云端'),'不应提示已切换到云端');
+  });
+
   console.log('\n'+passed+' 组 UI 测试通过');
 })();

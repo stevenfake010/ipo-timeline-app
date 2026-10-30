@@ -247,9 +247,11 @@
       if(!customLibrary&&!libraryError)library=copy(defaultLibrary);
       cloudInfo=(result.mode==='cloud'?'云端已连接':result.mode==='cache'?'正在使用本机发布缓存':'正在使用内置兜底')+(result.release?' · '+result.release.version:'')+(result.warning?'。'+result.warning:'。新建方案使用此版本，已有方案不变。');
       // 首屏是拿内置包先画出来的；云端到货后，只在空白方案上换成云端快照，动过的方案一律不碰。
+      // 注意：只有真的来自云端（含本机缓存）才换。落到内置兜底时包没变，换了也没有意义，更不该提示“已切换到云端”。
+      const fromCloud=result.mode==='cloud'||result.mode==='cache';
       const p=plan();
-      if(upgradePristine&&p&&p.ruleRelease===null&&!customLibrary&&!libraryError&&pristine(p)){
-        applyLibrary(p);save();toast('已切换到云端已发布版本');
+      if(upgradePristine&&fromCloud&&p&&p.ruleRelease===null&&!customLibrary&&!libraryError&&pristine(p)){
+        applyLibrary(p);save();toast(result.mode==='cache'?'已切换到云端缓存版本':'已切换到云端已发布版本');
         return;
       }
     }catch(e){cloudInfo='云端读取失败，保留当前默认数据：'+e.message;}
