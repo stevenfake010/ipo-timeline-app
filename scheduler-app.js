@@ -13,7 +13,8 @@
   const batch1=window.IPOFeedbackRevision.revise(prospectus.template);
   const agenda=copy(prospectus.agenda);agenda.find(x=>x.eventCode==='EVT-141').outputs.push('EVT-157');agenda.find(x=>x.eventCode==='EVT-142').inputs.push('EVT-157');
   const batch2=window.IPOBatch2Revision.revise(batch1);
-  const embedded=window.IPOMeetingCycle.revise(window.IPOProspectusGrouping.revise(batch2));
+  const cycle=window.IPOMeetingCycle.revise(window.IPOProspectusGrouping.revise(batch2));
+  const embedded={...cycle,template:window.IPOFlexiblePlanning.revise(cycle.template)};
   let library={template:embedded.template,source:'内置最新事件库',agenda:embedded.agenda},libraryError='';
   try{const raw=localStorage.getItem(LIBRARY_KEY);if(raw){const saved=JSON.parse(raw),errors=E.validateTemplate(saved.template);if(errors.length)throw new Error(errors.join('；'));library=saved;}}
   catch(e){libraryError='本机事件库读取失败，原数据未覆盖：'+e.message;}
@@ -45,7 +46,8 @@
     if(!p)return;
     $('planName').value=p.name;
     const t=p.template;$('eventCount').textContent=t?t.events.length+' 个事件':'未载入';
-    $('snapshotInfo').textContent=t?`${p.source} · 快照 ${p.fingerprint} · ${t.threads.length} 个线程`:'独立复制规则，不改动采集器。';
+    $('snapshotInfo').textContent=t?`${p.source==='内置最新事件库'?'内置事件库快照':p.source} · 快照 ${p.fingerprint} · ${t.threads.length} 个线程`:'独立复制规则，不改动采集器。';
+    $('ruleUpdateNote').textContent=t&&t.ruleRevision!==embedded.template.ruleRevision?'当前方案保留原规则。如需最新默认规则，请新建方案；已有方案不会改变。':'';
     const anchors=t?.events.filter(e=>e.dateMode==='anchor_input')||[];
     $('anchorInputs').innerHTML=anchors.length?anchors.map(e=>`<label>${esc(e.name)}<input type="date" data-anchor="${esc(e.id)}" value="${esc(p.settings.anchorDates[e.id]||'')}"></label>`).join(''):'<p class="muted">载入规则后，填写项目日期。</p>';
     $('a1Select').innerHTML='<option value="">不指定</option>'+anchors.map(e=>`<option value="${esc(e.id)}">${esc(e.name)}</option>`).join('');$('a1Select').value=p.settings.a1Id||'';

@@ -7,7 +7,7 @@
 </head>
 <body>
 <header class="topbar">
-  <div class="brand"><span class="brand-mark">JT</span><div><small>PROJECT TIMELINE</small><h1>IPO 项目排程器 <span>v0.3 大会规则版</span></h1></div></div>
+  <div class="brand"><span class="brand-mark">JT</span><div><small>PROJECT TIMELINE</small><h1>IPO 项目排程器 <span>v0.10 弹性排程版</span></h1></div></div>
   <nav><button id="exportPlan">导出方案</button><label class="button" for="importPlan">导入方案<input type="file" id="importPlan" accept=".json,application/json" hidden></label></nav>
 </header>
 <div class="workspace">
@@ -18,6 +18,7 @@
     <label>方案名称<input id="planName" placeholder="例如：A1 首轮排程"></label>
     <section><div class="heading"><h3>01 项目规则</h3><span id="eventCount">未载入</span></div>
       <p id="snapshotInfo" class="muted">新方案自动使用当前事件库。</p>
+      <p id="ruleUpdateNote" class="hint"></p>
       <details><summary>事件库管理（测试阶段）</summary>
       <p class="hint">更新事件库只影响本浏览器之后新建的方案，已有方案的规则快照不会变更。此入口并非权限保护。</p>
       <a href="collector.html">打开规则采集器 ↗</a>
@@ -36,7 +37,7 @@
       <label class="check"><input type="checkbox" id="keepPrevious" checked>重排时尽量保留已确认日期</label>
       <label class="check"><input type="checkbox" id="preferWorkingDays" checked>普通事件尽量安排在工作日</label>
       <label>重排方式<select id="replanMode"><option value="optimize">重新优化（保留原版，先预览）</option><option value="repair_only">仅修复硬冲突（可行旧版不变）</option></select></label>
-      <p class="hint">硬条件优先，其次工作日；错周与目标间隔综合权衡，不再为少一对撞周牺牲任意等待时间。人工锁定始终不变。</p>
+      <p class="hint">硬条件优先，其次工作日；按项目窗口安排阶段，奖励两周会议节奏，也允许一周或三周。不会为填满每周制造任务。人工锁定始终不变。</p>
     </section>
     <details><summary>日历与计算范围</summary>
       <p class="calendar-notice">已内置2026–2028年中、美、港假期；内地2027–2028年及香港2028年为暂定估算，待正式公布后更新。美国为联邦假期，不等同交易所日历。未覆盖日期仅按周末处理。</p>
@@ -64,7 +65,7 @@
   <aside id="inspector" class="inspector"><div class="heading"><h2>事件详情</h2><button id="closeInspector" aria-label="关闭详情">×</button></div><div id="eventDetails"><p class="muted">生成时间表后，点击任意事件查看日期依据、前后关系与人工锁定。</p></div></aside>
 </div>
 <div id="toast" class="toast" hidden role="status"></div>
-<script src="scheduler-engine.js?v=0.9.0"></script>
+<script src="scheduler-engine.js?v=0.10.0"></script>
 <script src="scheduler-draft.js?v=0.1.0"></script>
 <script src="scheduler-rule-revision.js?v=0.2.0"></script>
 <script src="scheduler-prospectus-revision.js?v=0.3.0"></script>
@@ -72,7 +73,8 @@
 <script src="scheduler-feedback-batch2.js?v=0.7.0"></script>
 <script src="scheduler-prospectus-grouping.js?v=0.8.0"></script>
 <script src="scheduler-meeting-cycle.js?v=0.9.0"></script>
+<script src="scheduler-flexible-planning.js?v=0.10.0"></script>
 <script src="scheduler-public-holidays.js?v=0.5.0"></script>
-<script src="scheduler-app.js?v=0.9.0"></script>
+<script src="scheduler-app.js?v=0.10.0"></script>
 </body>
 </html>

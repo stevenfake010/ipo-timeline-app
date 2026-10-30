@@ -1,7 +1,7 @@
 /* IPO scheduler, offline and dependency-free. Shared by Web Worker and Node tests. */
 (function engineFactory(root) {
   'use strict';
-  const VERSION = '0.2.0';
+  const VERSION = '0.10.0';
   const DAY = 86400000;
   function parseDate(s) {
     if (typeof s !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(s)) throw new Error('日期须为 YYYY-MM-DD');
@@ -42,6 +42,7 @@
     const active = new Set(), done = new Set();
     function visit(id) { if (active.has(id)) { errors.push('硬前置关系成环：' + (t.events.find(e => e.id === id)?.code || id)); return; } if (done.has(id)) return; active.add(id); for (const next of adjacency.get(id) || []) visit(next); active.delete(id); done.add(id); }
     for (const id of ids) visit(id);
+    if(t.planningPolicy){const p=t.planningPolicy;if(p.version!==1||!ids.has(p.startEventId)||!ids.has(p.finishEventId)||!Array.isArray(p.meetingEventIds)||p.meetingEventIds.some(id=>!ids.has(id))||!p.progress||typeof p.progress!=='object'||Object.entries(p.progress).some(([id,v])=>!ids.has(id)||!Number.isFinite(v)||v<0||v>1)||p.cadencePositions&&(typeof p.cadencePositions!=='object'||Object.entries(p.cadencePositions).some(([id,v])=>!ids.has(id)||!Number.isFinite(v)||v< -1||v>5))||!Number.isFinite(p.layoutWeight)||p.layoutWeight<0||p.layoutWeight>20||!Number.isFinite(p.ordinaryTargetWeight)||p.ordinaryTargetWeight<0||p.ordinaryTargetWeight>1)errors.push('项目弹性布局设置无效');}
     return [...new Set(errors)];
   }
   function createCalendars(config = {}) {
@@ -174,7 +175,8 @@
     for (const e of c.edges) {
       const [l,u]=bounds(c,e,dates[e.a]), b=dates[e.b];
       if(e.strength==='soft') soft+=Math.max(0,l-b,b-u);
-      if(e.targetLag!=null)target+=(e.targetWeight||1)*Math.abs(b-c.calendars.add(dates[e.a],e.targetLag,e.unit,e.calendar));
+      if(e.targetLag!=null)target+=(e.targetWeight||1)*(c.template.planningPolicy&&!(e.targetWeight>1)?c.template.planningPolicy.ordinaryTargetWeight:1)*Math.abs(b-c.calendars.add(dates[e.a],e.targetLag,e.unit,e.calendar));
+      if(c.template.planningPolicy?.meetingEventIds.includes(c.events[e.a].id)&&c.template.planningPolicy.meetingEventIds.includes(c.events[e.b].id))target+=12*Math.max(0,b-dates[e.a]-21);
     }
     c.events.forEach((e,i)=>{
       const prev=previous?.[e.id];if(prev && parseDate(prev)!==dates[i]){moved++;shift+=Math.abs(parseDate(prev)-dates[i]);}
@@ -189,8 +191,11 @@
     // Stability is a cost, never a blanket exemption from optimization. Locked dates
     // remain hard constraints in compile/verify.
     const stability=c.settings.keepPrevious!==false&&previous ? moved+shift/20 : 0;
-    return [released,workdayPenalty,soft,c.settings._searchStyle==='spread'?collision:collision*14+target+stability,c.settings._searchStyle==='spread'?target:collision,target,moved,shift];
+    const layout=layoutCost(c,dates);
+    return [released,workdayPenalty,soft,c.settings._searchStyle==='spread'?collision:collision*14+target+layout+stability,c.settings._searchStyle==='spread'?target+layout:collision,target,moved,shift];
   }
+  function plannedDate(c,i,dates){const p=c.template.planningPolicy;if(!p||p.progress[c.events[i].id]==null)return null;const a=dates[c.index.get(p.startEventId)],b=dates[c.index.get(p.finishEventId)];if(b<=a)return null;const position=p.cadencePositions?.[c.events[i].id];if(position!=null)return Math.round(a+(b-a)*.82+(position-4)*Math.max(7,Math.min(21,(b-a)*.15)));return Math.round(a+(b-a)*p.progress[c.events[i].id]);}
+  function layoutCost(c,dates){const p=c.template.planningPolicy;if(!p)return 0;let cost=0;for(let i=0;i<c.events.length;i++){if(c.events[i].dateMode==='anchor_input')continue;const wanted=plannedDate(c,i,dates);if(wanted!=null)cost+=Math.abs(dates[i]-wanted)*p.layoutWeight;}return cost;}
   function solveSingle(template, settings={}, progress=()=>{}) {
     const started=Date.now(), budget=Math.max(500,Math.min(settings.timeBudgetMs||5000,30000)), finishDeadline=started+budget, deadline=started+Math.floor(budget*.9);
     let c; try { c=compile(template,settings); } catch(e) { return {status:'invalid',errors:e.message.split('\n')}; }
@@ -248,7 +253,7 @@
         for(const e of c.edges)if(e.b===i&&e.targetLag!=null)prefs.push(c.calendars.add(current[e.a],e.targetLag,e.unit,e.calendar));
         if(settings.previousDates?.[c.events[i].id] && settings.keepPrevious!==false)prefs.unshift(parseDate(settings.previousDates[c.events[i].id]));
         let wanted=prefs.length?Math.max(...prefs):current[i];
-        if(pass===2)wanted+=7;
+        if(pass===2){const layout=plannedDate(c,i,current);wanted=layout==null?wanted+7:layout;}
         const options=live[i].slice().sort((a,b)=>Math.abs(a-wanted)-Math.abs(b-wanted)).slice(0,4);
         for(const v of options){
           const input=live.map(d=>d.slice());g.forEach(j=>input[j]=[v]);const next=propagate(c,input,deadline);
@@ -266,6 +271,7 @@
         if(g.some(i=>c.fixed.has(i)))continue;
         const members=new Set(g), touching=c.hard.filter(e=>members.has(e.a)||members.has(e.b));
         const options=new Set([best[g[0]],domains[g[0]][0],domains[g[0]].at(-1)]);
+        const layout=plannedDate(c,g[0],best);if(layout!=null)options.add(layout);
         for(let d=-21;d<=21;d++)options.add(best[g[0]]+d);
         for(const i of g)for(const e of c.edges)if(e.b===i&&e.targetLag!=null)options.add(c.calendars.add(best[e.a],e.targetLag,e.unit,e.calendar));
         let chosen=best,chosenScore=bestScore;
@@ -416,6 +422,7 @@
       warnings:c.warnings,horizon:{start:iso(c.start),end:iso(c.end)},message:'硬条件全部通过独立复核；优先工作日，综合权衡错周、目标间隔及改期成本。未证明全局最优。'};
   }
   function solve(template,settings={},progress=()=>{}){
+    if(template.planningPolicy&&settings.replanMode!=='repair_only')return solveFlexible(template,settings,progress);
     const started=Date.now(),budget=Math.max(500,Math.min(settings.timeBudgetMs||5000,30000));
     const portfolio=budget>=2000&&settings.replanMode!=='repair_only';
     const first=solveSingle(template,{...settings,_searchStyle:undefined,timeBudgetMs:portfolio?Math.floor(budget*.55):budget},progress);
@@ -438,6 +445,32 @@
       }
     }
     return{...chosen,elapsedMs:Date.now()-started,searchStarts:2,candidates:first.candidates+(second.candidates||0),jointMoves:first.jointMoves+(second.jointMoves||0)};
+  }
+  function solveFlexible(template,settings,progress){
+    const started=Date.now(),budget=Math.max(500,Math.min(settings.timeBudgetMs||5000,30000)),deadline=started+budget;
+    let best=solveSingle(template,{...settings,timeBudgetMs:Math.max(500,Math.floor(budget*.35))},progress);if(best.status!=='feasible')return best;
+    const c=compile(template,settings),p=template.planningPolicy;let proposal=false,attempts=1;
+    const assess=r=>score(c,c.events.map(e=>parseDate(r.dates[e.id])),settings.previousDates);
+    const meetings=p.meetingEventIds;
+    // Compare cadence alternatives under one objective. Temporary candidate
+    // locks never replace user locks or survive in the accepted diagnostics.
+    for(const gap of [14,21,7]){
+      const left=deadline-Date.now();if(left<900)break;
+      const a=parseDate(best.dates[p.startEventId]),b=parseDate(best.dates[p.finishEventId]);
+      let last=Math.round(a+(b-a)*p.progress[meetings.at(-1)]);
+      const cal=c.calendars.get(template.project.defaultCalendar||'hk');while(settings.preferWorkingDays!==false&&!cal.isWorking(last))last--;
+      const locks={...(settings.locks||{})};let valid=true;
+      for(let i=0;i<meetings.length;i++){const id=meetings[i],date=iso(last-(meetings.length-1-i)*gap);if((locks[id]&&locks[id]!==date)||(settings.anchorDates?.[id]&&settings.anchorDates[id]!==date)){valid=false;break;}locks[id]=date;}
+      if(!valid)continue;
+      const r=solveSingle(template,{...settings,locks,timeBudgetMs:Math.max(500,Math.min(1200,Math.floor((left-650)/3)))},()=>{});attempts++;
+      if(r.status==='feasible'&&!verify(template,settings,r.dates).length){r.score=assess(r);if(compare(r.score,best.score)<0){best=r;proposal=true;}}
+    }
+    const left=deadline-Date.now();
+    if(left>850){const r=solveSingle(template,{...settings,_searchStyle:'spread',timeBudgetMs:left-650},progress);attempts++;if(r.status==='feasible'&&compare(r.score,best.score)<0){best=r;proposal=false;}}
+    if(proposal){const clean=solveSingle(template,{...settings,previousDates:best.dates,replanMode:'repair_only',timeBudgetMs:650},()=>{});if(clean.status==='feasible')best=clean;else return{status:'unknown',errors:['候选方案诊断复核未完成，请增加计算预算。']};}
+    const s=assess(best);best.score=s;Object.assign(best.metrics,{qualityCost:s[3],sameWeekPairs:s[4],targetDeviationDays:s[5],movedEvents:s[6],shiftDays:s[7],layoutDeviationCost:layoutCost(c,c.events.map(e=>parseDate(best.dates[e.id])))});
+    best.message='硬条件全部通过独立复核；按项目窗口安排阶段，偏好两周会议节奏，并比较一周/三周候选。未证明全局最优。';
+    return{...best,elapsedMs:Date.now()-started,searchStarts:attempts};
   }
   const api={VERSION,parseDate,iso,week,weekday,validateTemplate,createCalendars,compile,propagate,solve,verify};
   api.workerSource='('+engineFactory.toString()+')(self); self.onmessage=function(event){ try { const p=event.data; const result=IPOScheduler.solve(p.template,p.settings,progress=>self.postMessage({progress})); self.postMessage({result}); } catch(error) { self.postMessage({result:{status:"invalid",errors:[error.message]}}); }};';
