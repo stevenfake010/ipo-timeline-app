@@ -10,7 +10,9 @@
   try { const raw=localStorage.getItem(KEY);if(raw){const parsed=JSON.parse(raw);if(parsed.version!==1||!Array.isArray(parsed.plans))throw new Error('方案存储格式无法识别');db=parsed;} }catch(e){readError='无法读取已有方案，未覆盖原存储。请导出当前工作后检查浏览器存储：'+e.message;}
   const reviewed=window.IPORuleRevision.revise(window.IPO_DRAFT_RULES,window.IPO_DRAFT_RULES).template;
   const prospectus=window.IPOProspectusRevision.revise(reviewed,reviewed);
-  const embedded={...prospectus,template:window.IPOFeedbackRevision.revise(prospectus.template)};
+  const batch1=window.IPOFeedbackRevision.revise(prospectus.template);
+  const agenda=copy(prospectus.agenda);agenda.find(x=>x.eventCode==='EVT-141').outputs.push('EVT-157');agenda.find(x=>x.eventCode==='EVT-142').inputs.push('EVT-157');
+  const embedded={...prospectus,agenda,template:window.IPOBatch2Revision.revise(batch1)};
   let library={template:embedded.template,source:'内置最新事件库',agenda:embedded.agenda},libraryError='';
   try{const raw=localStorage.getItem(LIBRARY_KEY);if(raw){const saved=JSON.parse(raw),errors=E.validateTemplate(saved.template);if(errors.length)throw new Error(errors.join('；'));library=saved;}}
   catch(e){libraryError='本机事件库读取失败，原数据未覆盖：'+e.message;}
