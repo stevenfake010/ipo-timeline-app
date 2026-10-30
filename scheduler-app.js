@@ -56,7 +56,6 @@
     const anchors=t?.events.filter(e=>e.dateMode==='anchor_input')||[];
     $('anchorInputs').innerHTML=anchors.length?anchors.map(e=>`<label>${esc(e.name)}<input type="date" data-anchor="${esc(e.id)}" value="${esc(p.settings.anchorDates[e.id]||'')}"></label>`).join(''):'<p class="muted">载入规则后，填写项目日期。</p>';
     $('a1Select').innerHTML='<option value="">不指定</option>'+anchors.map(e=>`<option value="${esc(e.id)}">${esc(e.name)}</option>`).join('');$('a1Select').value=p.settings.a1Id||'';
-    for(const k of FORCED_SETTINGS)p.settings[k]=true;
     $('a1BusinessDaysOnly').checked=true;$('spreadWeeks').checked=true;$('keepPrevious').checked=true;$('preferWorkingDays').checked=true;
     $('replanMode').value=p.settings.replanMode||'optimize';
     $('horizonStart').value=p.settings.horizonStart||'';$('horizonEnd').value=p.settings.horizonEnd||'';$('timeBudget').value=p.settings.timeBudgetMs||10000;
@@ -134,10 +133,13 @@
   function stop(){generation++;if(worker){worker.terminate();worker=null;URL.revokeObjectURL(workerURL);workerURL=null;$('cancel').disabled=true;$('run').disabled=!plan()?.template;}}
   function begin(release=false){
     const p=plan();if(!p?.template)return;
-    for(const k of FORCED_SETTINGS)p.settings[k]=true;
     p.settings.calendars=effectiveCalendars(p.settings.calendars);
     stop();p.pending=null;save();renderPending();renderBoard();$('conflicts').hidden=true;
-    const settings=copy(p.settings);settings.previousDates=p.result?.run.dates;
+    const settings=copy(p.settings);
+    // The UI no longer exposes these switches; force them on the computation copy only,
+    // so a stored plan's saved settings are never rewritten behind the user's back.
+    for(const k of FORCED_SETTINGS)settings[k]=true;
+    settings.previousDates=p.result?.run.dates;
     if(release){if(!settings.a1Id){toast('请先指定A1锚点');return;}settings.releaseAnchorId=settings.a1Id;delete settings.locks[settings.a1Id];}
     else delete settings.releaseAnchorId;
     const token=p.id,requestGeneration=generation;
