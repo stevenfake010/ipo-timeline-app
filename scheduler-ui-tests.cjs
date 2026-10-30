@@ -41,7 +41,7 @@ function plan(id,name,withTemplate){
     result:null,pending:null,history:[],dirty:true};
 }
 
-function boot(db){
+function boot(db,cloud){
   const els={};
   for(const [,name] of html.matchAll(/\bid="([^"]+)"/g)){
     els[name]={value:'',innerHTML:'',textContent:'',checked:false,hidden:false,disabled:false,className:'',
@@ -50,7 +50,9 @@ function boot(db){
   const state={};
   if(db!==undefined)state['ipo-scheduler-plans-v1']=JSON.stringify(db);
   const storage={getItem:k=>state[k]??null,setItem:(k,v)=>{state[k]=v;},removeItem:k=>{delete state[k];}};
-  const window={IPOScheduler:E,IPO_CLOUD_CONFIG:{enabled:false},confirm:()=>true,localStorage:storage};
+  const window={IPOScheduler:E,IPO_CLOUD_CONFIG:{enabled:!!cloud},confirm:()=>true,localStorage:storage,
+    fetch:async()=>{throw new Error('测试环境不联网');}};
+  if(cloud)window.IPOLibraryCloud=cloud;
   for(const [name,file] of [['IPORuleRevision','scheduler-rule-revision'],['IPOProspectusRevision','scheduler-prospectus-revision'],
     ['IPOFeedbackRevision','scheduler-feedback-revision'],['IPOBatch2Revision','scheduler-feedback-batch2'],
     ['IPOProspectusGrouping','scheduler-prospectus-grouping'],['IPOMeetingCycle','scheduler-meeting-cycle'],
@@ -108,4 +110,40 @@ test('没有当前方案时点击删除只提示、不抛错',()=>{
   assert.equal(box.read().plans.length,1,'不应误删方案');
 });
 
-console.log('\n'+passed+' 组 UI 测试通过');
+// ---------- 首屏体验：不等云端，也不覆盖已动过的方案 ----------
+async function testAsync(name,fn){await fn();passed++;console.log('PASS',name);}
+const CAL={version:'测试日历',from:'2026-01-01',to:'2027-12-31',holidays:[],workingDays:[]};
+function cloudStub(version,tag){
+  return {load:async()=>{
+    await new Promise(r=>setTimeout(r,20));
+    return {mode:'cloud',release:{id:'rel-'+tag,version,min_engine_version:'0.10.0'},data:{rules:seed,agenda:[],calendars:{hk:CAL,cn:CAL,us:CAL}}};
+  }};
+}
+
+(async()=>{
+  await testAsync('首屏立即用内置包渲染，不等云端返回',async()=>{
+    const box=boot(undefined,cloudStub('cloud-v1','1'));
+    // boot() 内 vm 已同步执行完毕：此刻应已挂上事件库，而不是“未载入”空壳
+    assert.equal(box.els.eventCount.textContent,seed.events.length+' 个事件');
+    assert.ok(box.els.planSelect.innerHTML.includes('未命名排程方案'),'应已出现当前方案');
+  });
+
+  await testAsync('云端返回后，空白方案被升级到云端快照',async()=>{
+    const box=boot(undefined,cloudStub('cloud-v1','1'));
+    await new Promise(r=>setTimeout(r,120));
+    const p=box.read().plans[0];
+    assert.equal(p.ruleRelease.id,'rel-1','空白方案应换成云端发布');
+    assert.equal(p.template.events.length,seed.events.length);
+  });
+
+  await testAsync('云端返回后，已填锚点的方案不动',async()=>{
+    const filled=plan('keep','已填锚点',true);
+    filled.ruleRelease=null;filled.settings.anchorDates={e0:'2026-11-02'};
+    const box=boot({version:1,currentId:'keep',plans:[filled]},cloudStub('cloud-v2','2'));
+    const before=box.state['ipo-scheduler-plans-v1'];
+    await new Promise(r=>setTimeout(r,120));
+    assert.equal(box.state['ipo-scheduler-plans-v1'],before,'动过的方案不应被云端替换');
+  });
+
+  console.log('\n'+passed+' 组 UI 测试通过');
+})();

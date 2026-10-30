@@ -231,7 +231,13 @@
     if(!plan().template&&!libraryError)applyLibrary(plan());
     render();if(!readError&&existed&&plan().template)$('saveState').textContent='已读取本机保存的方案';
   }
-  async function refreshCloud(initial=false){
+  function pristine(p){
+    // 只有“刚建出来、一个字都没填”的方案才允许被云端快照静默替换。
+    return !!p&&!p.result&&!p.pending&&!(p.history&&p.history.length)
+      &&!Object.keys(p.settings.anchorDates||{}).length&&!Object.keys(p.settings.locks||{}).length;
+  }
+  async function refreshCloud(options={}){
+    const quiet=!!options.quiet,upgradePristine=!!options.upgradePristine;
     if(libraryLoading)return;libraryLoading=true;$('cloudInfo').textContent='正在读取云端已发布规则与日历…';
     try{
       let storage;try{storage=window.localStorage;}catch(e){/* Browser storage may be disabled. */}
@@ -240,10 +246,18 @@
       defaultLibrary={template:result.data.rules,agenda:result.data.agenda,source:result.mode==='cloud'?'云端已发布事件库':result.mode==='cache'?'云端已发布缓存':'内置事件库兜底',release:copy(result.release)};
       if(!customLibrary&&!libraryError)library=copy(defaultLibrary);
       cloudInfo=(result.mode==='cloud'?'云端已连接':result.mode==='cache'?'正在使用本机发布缓存':'正在使用内置兜底')+(result.release?' · '+result.release.version:'')+(result.warning?'。'+result.warning:'。新建方案使用此版本，已有方案不变。');
+      // 首屏是拿内置包先画出来的；云端到货后，只在空白方案上换成云端快照，动过的方案一律不碰。
+      const p=plan();
+      if(upgradePristine&&p&&p.ruleRelease===null&&!customLibrary&&!libraryError&&pristine(p)){
+        applyLibrary(p);save();toast('已切换到云端已发布版本');
+        return;
+      }
     }catch(e){cloudInfo='云端读取失败，保留当前默认数据：'+e.message;}
-    finally{libraryLoading=false;if(initial)start();else{render();toast('已检查云端默认版本，已有方案未改变');}}
+    finally{libraryLoading=false;render();if(!quiet)toast('已检查云端默认版本，已有方案未改变');}
   }
   $('refreshCloud').onclick=()=>window.IPOLibraryCloud?refreshCloud():undefined;
   $('exportCalendars').onclick=()=>download('当前默认日历.json',JSON.stringify({calendars:defaultCalendars,release:defaultRelease},null,2));
-  if(window.IPOLibraryCloud)refreshCloud(true);else start();
+  // 先用内置包把界面画出来（不再等云端），云端回来后再补上默认库并换掉空白方案的快照。
+  start();
+  if(window.IPOLibraryCloud)refreshCloud({quiet:true,upgradePristine:true});
 })();
