@@ -28,7 +28,7 @@
     <section><h3>02 项目锚点</h3><div id="anchorInputs"><p class="muted">载入规则后，填写项目日期。</p></div>
       <label>A1锚点（用于备选试算）<select id="a1Select"><option value="">不指定</option></select></label>
       <label class="check"><input type="checkbox" id="a1BusinessDaysOnly" checked>A1仅安排在项目工作日</label>
-      <p class="hint">这是本方案的日期限制，不是法规核验。未导入公众假期时只排除周末。</p>
+      <p class="hint">这是本方案的日期限制，不是法规核验。按项目日历判断工作日，未覆盖日期仅按周末处理并发出提示。</p>
     </section>
     <section><h3>03 排程偏好</h3>
       <label class="check"><input type="checkbox" id="spreadWeeks" checked>同线程尽量错开周次</label>
@@ -38,7 +38,8 @@
       <p class="hint">硬条件优先，其次工作日；错周与目标间隔综合权衡，不再为少一对撞周牺牲任意等待时间。人工锁定始终不变。</p>
     </section>
     <details><summary>日历与计算范围</summary>
-      <p class="calendar-notice">默认只排除周末，未内置公众假期。未导入完整日历前，结果仅供试排。</p>
+      <p class="calendar-notice">已内置2026–2028年中、美、港假期；内地2027–2028年及香港2028年为暂定估算，待正式公布后更新。美国为联邦假期，不等同交易所日历。未覆盖日期仅按周末处理。</p>
+      <details><summary>查看内地暂定补班日</summary><p class="hint">2027：2月14日、5月8日、9月26日、10月9日；2028：1月22日、2月5日、4月8日、5月6日、9月30日、10月14日。以上均为排程假设，并非官方通知。</p></details>
       <label class="button wide" for="importCalendar">导入日历 JSON<input type="file" id="importCalendar" accept=".json,application/json" hidden></label>
       <button id="calendarSample" class="wide">下载日历格式示例</button><p id="calendarInfo" class="hint">尚未导入日历</p>
       <label>搜索起日（可留空）<input type="date" id="horizonStart"></label>
@@ -62,10 +63,11 @@
   <aside id="inspector" class="inspector"><div class="heading"><h2>事件详情</h2><button id="closeInspector" aria-label="关闭详情">×</button></div><div id="eventDetails"><p class="muted">生成时间表后，点击任意事件查看日期依据、前后关系与人工锁定。</p></div></aside>
 </div>
 <div id="toast" class="toast" hidden role="status"></div>
-<script src="scheduler-engine.js?v=0.2.0"></script>
+<script src="scheduler-engine.js?v=0.5.0"></script>
 <script src="scheduler-draft.js?v=0.1.0"></script>
 <script src="scheduler-rule-revision.js?v=0.2.0"></script>
 <script src="scheduler-prospectus-revision.js?v=0.3.0"></script>
-<script src="scheduler-app.js?v=0.4.0"></script>
+<script src="scheduler-public-holidays.js?v=0.5.0"></script>
+<script src="scheduler-app.js?v=0.5.0"></script>
 </body>
 </html>

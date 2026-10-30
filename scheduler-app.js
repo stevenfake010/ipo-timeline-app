@@ -21,12 +21,13 @@
     try{localStorage.setItem(KEY,JSON.stringify(db));$('saveState').textContent='已保存本机 · '+new Date().toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'});}
     catch(e){$('saveState').textContent='本机保存失败：请立即导出方案备份。';toast('本机空间不足或存储不可用，当前修改仅在内存中，请导出方案。');}
   }
-  function blank(){return{id:uid(),name:'未命名排程方案',template:null,source:'',fingerprint:'',settings:{anchorDates:{},locks:{},calendars:{},spreadWeeks:true,keepPrevious:true,preferWorkingDays:true,a1BusinessDaysOnly:true,timeBudgetMs:10000},result:null,pending:null,history:[],dirty:true};}
+  function blank(){return{id:uid(),name:'未命名排程方案',template:null,source:'',fingerprint:'',settings:{anchorDates:{},locks:{},calendars:copy(window.IPO_PUBLIC_HOLIDAYS),spreadWeeks:true,keepPrevious:true,preferWorkingDays:true,a1BusinessDaysOnly:true,timeBudgetMs:10000},result:null,pending:null,history:[],dirty:true};}
   function applyLibrary(p){const t=library.template;p.template=copy(t);p.source=library.source;p.fingerprint=fingerprint(t);p.conferenceAgenda=copy(library.agenda||[]);p.settings.a1Id=t.events.find(e=>e.dateMode==='anchor_input'&&/A1/i.test(e.name))?.id||'';}
   function newPlan(){if(libraryError){status(libraryError,'error');return;}stop();const p=blank();applyLibrary(p);db.plans.push(p);db.currentId=p.id;selected=null;save();render();}
   function currentResult(){return plan()?.pending||plan()?.result;}
   function mutate(){stop();const p=plan();p.pending=null;p.dirty=true;save();status(p.result?'设置已改变，下面仍是上次结果。请重新试排后确认新版本。':'设置已更新，请生成新的排程预览。','warning');renderPending();renderBoard();renderDetails();}
   function fingerprint(t){let h=2166136261;for(const c of JSON.stringify(t)){h^=c.charCodeAt(0);h=Math.imul(h,16777619);}return (h>>>0).toString(16).padStart(8,'0');}
+  function effectiveCalendars(saved){const result=copy(window.IPO_PUBLIC_HOLIDAYS);for(const [name,c] of Object.entries(saved||{}))if(!c.builtin||!result[name])result[name]=copy(c);return result;}
   function loadRules(t,source){
     const errors=E.validateTemplate(t);if(errors.length)throw new Error(errors.join('\n'));
     stop();let p=plan();if(!p||p.template){p=blank();db.plans.push(p);db.currentId=p.id;}
@@ -49,7 +50,7 @@
     $('preferWorkingDays').checked=p.settings.preferWorkingDays!==false;
     $('replanMode').value=p.settings.replanMode||'optimize';
     $('horizonStart').value=p.settings.horizonStart||'';$('horizonEnd').value=p.settings.horizonEnd||'';$('timeBudget').value=p.settings.timeBudgetMs||10000;
-    $('calendarInfo').textContent=Object.entries(p.settings.calendars||{}).map(([k,v])=>`${k}：${v.version}（${v.from} 至 ${v.to}）`).join('；')||'尚未导入日历';
+    $('calendarInfo').textContent=Object.entries(effectiveCalendars(p.settings.calendars)).map(([k,v])=>`${k}：${v.version}（${v.from} 至 ${v.to}）`).join('；');
     $('viewTitle').textContent=t?p.name:'把事件规则变成项目时间表';
     $('viewSubtitle').textContent=t?`${t.project.timezone||'Asia/Hong_Kong'} · 周一至周日 · 规则快照与采集器独立`:'输入锚点，再生成第一版推荐日期。';
     $('run').disabled=!t;$('earliestA1').disabled=!t||!p.settings.a1Id;
@@ -123,6 +124,7 @@
   function stop(){generation++;if(worker){worker.terminate();worker=null;URL.revokeObjectURL(workerURL);workerURL=null;$('cancel').disabled=true;$('run').disabled=!plan()?.template;}}
   function begin(release=false){
     const p=plan();if(!p?.template)return;
+    p.settings.calendars=effectiveCalendars(p.settings.calendars);
     stop();p.pending=null;save();renderPending();renderBoard();$('conflicts').hidden=true;
     const settings=copy(p.settings);settings.previousDates=p.result?.run.dates;
     if(release){if(!settings.a1Id){toast('请先指定A1锚点');return;}settings.releaseAnchorId=settings.a1Id;delete settings.locks[settings.a1Id];}
@@ -193,7 +195,7 @@
   });
   $('exportCSV').onclick=()=>{const p=plan(),r=currentResult();if(!r){toast('请先生成日期');return;}const quote=v=>'"'+String(v??'').replace(/^[=+\-@]/,"'$&").replace(/"/g,'""')+'"';const rows=[['条线','线程','事件编码','事件名称','推荐日期','周一起日','日期状态']];for(const e of p.template.events){const th=p.template.threads.find(x=>x.id===e.threadId),lane=p.template.lanes.find(x=>x.id===th.laneId);rows.push([lane.name,th.name,e.code,e.name,r.run.dates[e.id],E.iso(E.week(E.parseDate(r.run.dates[e.id]))),r.settings.locks?.[e.id]?'锁定':e.dateMode==='anchor_input'?'锚点':'推荐']);}download(p.name+'_日期表.csv','\ufeff'+rows.map(row=>row.map(quote).join(',')).join('\r\n'),'text/csv;charset=utf-8');};
   $('calendarSample').onclick=()=>download('日历格式示例_需自行填入真实节假日.json',JSON.stringify({note:'仅为格式示例，空列表不代表实际无假期。填入完整资料后再导入。',calendars:{hk:{version:'请填写日历来源与版本',from:'2026-01-01',to:'2027-12-31',holidays:[],workingDays:[]},cn:{version:'请填写日历来源与版本',from:'2026-01-01',to:'2027-12-31',holidays:[],workingDays:[]}}},null,2));
-  $('importCalendar').onchange=e=>fileJSON(e.target,(data)=>{if(!data.calendars||typeof data.calendars!=='object'||Array.isArray(data.calendars))throw new Error('缺少calendars日历对象');for(const [name,c] of Object.entries(data.calendars)){if(!['hk','cn','us','project'].includes(name))throw new Error('不支持的日历名称：'+name);if(!c.version||c.version.includes('请填写')||!Array.isArray(c.holidays)||!Array.isArray(c.workingDays))throw new Error('请填写真实日历来源版本及节假日/补班日数组，不能直接导入格式示例');const from=E.parseDate(c.from),to=E.parseDate(c.to);if(from>to)throw new Error('日历覆盖范围不正确');for(const d of [...c.holidays,...c.workingDays]){const day=E.parseDate(d);if(day<from||day>to)throw new Error('假期或补班日期超出该日历覆盖范围');}}plan().settings.calendars={...plan().settings.calendars,...copy(data.calendars)};mutate();render();toast('已载入用户提供的日历，请重新试排');});
+  $('importCalendar').onchange=e=>fileJSON(e.target,(data)=>{if(!data.calendars||typeof data.calendars!=='object'||Array.isArray(data.calendars))throw new Error('缺少calendars日历对象');for(const [name,c] of Object.entries(data.calendars)){if(!['hk','cn','us','project'].includes(name))throw new Error('不支持的日历名称：'+name);if(!c.version||c.version.includes('请填写')||!Array.isArray(c.holidays)||!Array.isArray(c.workingDays))throw new Error('请填写真实日历来源版本及节假日/补班日数组，不能直接导入格式示例');const from=E.parseDate(c.from),to=E.parseDate(c.to);if(from>to)throw new Error('日历覆盖范围不正确');if((c.estimatedFrom&&!c.estimatedTo)||(!c.estimatedFrom&&c.estimatedTo))throw new Error('暂定区间须同时填写起止日期');if(c.estimatedFrom&&(E.parseDate(c.estimatedFrom)<from||E.parseDate(c.estimatedTo)>to||E.parseDate(c.estimatedFrom)>E.parseDate(c.estimatedTo)))throw new Error('暂定区间不在日历覆盖范围内');c.builtin=false;for(const d of [...c.holidays,...c.workingDays]){const day=E.parseDate(d);if(day<from||day>to)throw new Error('假期或补班日期超出该日历覆盖范围');}}plan().settings.calendars={...plan().settings.calendars,...copy(data.calendars)};mutate();render();toast('已载入用户提供的日历，请重新试排');});
   if(!db.plans.length){const p=blank();if(!libraryError)applyLibrary(p);db.plans.push(p);db.currentId=p.id;}
   if(!plan())db.currentId=db.plans[0].id;
   if(!plan().template&&!libraryError)applyLibrary(plan());

@@ -50,7 +50,7 @@
       const c = config[name] || {};
       const holidays = new Set((c.holidays || []).map(parseDate));
       const working = new Set((c.workingDays || []).map(parseDate));
-      const cal = { isWorking: d => name === 'natural' || working.has(d) || (weekday(d) < 5 && !holidays.has(d)), version: c.version || '仅周末（未核验公众假期）', from: c.from ? parseDate(c.from) : null, to: c.to ? parseDate(c.to) : null };
+      const cal = { isWorking: d => name === 'natural' || working.has(d) || (weekday(d) < 5 && !holidays.has(d)), version: c.version || '仅周末（未核验公众假期）', from: c.from ? parseDate(c.from) : null, to: c.to ? parseDate(c.to) : null, estimatedFrom:c.estimatedFrom?parseDate(c.estimatedFrom):null, estimatedTo:c.estimatedTo?parseDate(c.estimatedTo):null };
       cache.set(name, cal); return cal;
     }
     const memo = new Map();
@@ -99,6 +99,7 @@
       if (name === 'natural') continue;
       const c = calendars.get(name);
       if (c.from === null || c.to === null || c.from > start || c.to < end) warnings.push(`${name}日历未覆盖全部搜索范围，本方案含未核验假期的日期；仅供试排。`);
+      if(c.estimatedFrom!==null && c.estimatedTo!==null && start<=c.estimatedTo && end>=c.estimatedFrom)warnings.push(`${name}日历的${iso(c.estimatedFrom)}至${iso(c.estimatedTo)}为暂定估算（含可能的调休），搜索范围涉及该区间；正式公布后需更新重排。`);
     }
     const neighbors = events.map(() => []); for (const e of hard) { neighbors[e.a].push(e.b); neighbors[e.b].push(e.a); }
     const connected = new Set(fixed.keys()), queue = [...connected];
