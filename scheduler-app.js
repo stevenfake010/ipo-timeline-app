@@ -5,6 +5,8 @@
   const esc=x=>String(x??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const uid=()=>typeof crypto.randomUUID==='function'?crypto.randomUUID():Date.now()+'-'+Math.random().toString(36).slice(2);
   const unitLabel=unit=>({business_day:'工作日',calendar_day:'自然日',calendar_month:'自然月'}[unit]||unit);
+  // These switches are product defaults now: the UI no longer exposes them, and plans always run with them on.
+  const FORCED_SETTINGS=['spreadWeeks','keepPrevious','preferWorkingDays','a1BusinessDaysOnly'];
   let db={version:1,currentId:null,plans:[]}, worker=null, workerURL=null, generation=0, selected=null, collapsed=new Set(), toastTimer;
   let readError='';
   try { const raw=localStorage.getItem(KEY);if(raw){const parsed=JSON.parse(raw);if(parsed.version!==1||!Array.isArray(parsed.plans))throw new Error('方案存储格式无法识别');db=parsed;} }catch(e){readError='无法读取已有方案，未覆盖原存储。请导出当前工作后检查浏览器存储：'+e.message;}
@@ -54,9 +56,7 @@
     const anchors=t?.events.filter(e=>e.dateMode==='anchor_input')||[];
     $('anchorInputs').innerHTML=anchors.length?anchors.map(e=>`<label>${esc(e.name)}<input type="date" data-anchor="${esc(e.id)}" value="${esc(p.settings.anchorDates[e.id]||'')}"></label>`).join(''):'<p class="muted">载入规则后，填写项目日期。</p>';
     $('a1Select').innerHTML='<option value="">不指定</option>'+anchors.map(e=>`<option value="${esc(e.id)}">${esc(e.name)}</option>`).join('');$('a1Select').value=p.settings.a1Id||'';
-    $('a1BusinessDaysOnly').checked=p.settings.a1BusinessDaysOnly===true;
-    $('spreadWeeks').checked=p.settings.spreadWeeks!==false;$('keepPrevious').checked=p.settings.keepPrevious!==false;
-    $('preferWorkingDays').checked=p.settings.preferWorkingDays!==false;
+    $('a1BusinessDaysOnly').checked=true;$('spreadWeeks').checked=true;$('keepPrevious').checked=true;$('preferWorkingDays').checked=true;
     $('replanMode').value=p.settings.replanMode||'optimize';
     $('horizonStart').value=p.settings.horizonStart||'';$('horizonEnd').value=p.settings.horizonEnd||'';$('timeBudget').value=p.settings.timeBudgetMs||10000;
     $('calendarInfo').textContent=Object.entries(effectiveCalendars(p.settings.calendars)).map(([k,v])=>`${k}：${v.version}（${v.from} 至 ${v.to}）`).join('；');
@@ -135,7 +135,11 @@
     const p=plan();if(!p?.template)return;
     p.settings.calendars=effectiveCalendars(p.settings.calendars);
     stop();p.pending=null;save();renderPending();renderBoard();$('conflicts').hidden=true;
-    const settings=copy(p.settings);settings.previousDates=p.result?.run.dates;
+    const settings=copy(p.settings);
+    // The UI no longer exposes these switches; force them on the computation copy only,
+    // so a stored plan's saved settings are never rewritten behind the user's back.
+    for(const k of FORCED_SETTINGS)settings[k]=true;
+    settings.previousDates=p.result?.run.dates;
     if(release){if(!settings.a1Id){toast('请先指定A1锚点');return;}settings.releaseAnchorId=settings.a1Id;delete settings.locks[settings.a1Id];}
     else delete settings.releaseAnchorId;
     const token=p.id,requestGeneration=generation;
@@ -181,6 +185,20 @@
   });
   $('newPlan').onclick=newPlan;
   $('copyPlan').onclick=()=>{stop();const p=copy(plan());p.id=uid();p.name+=' · 副本';p.pending=null;db.plans.push(p);db.currentId=p.id;save();render();};
+  $('deletePlan').onclick=()=>{
+    const p=plan();
+    if(!p){toast('当前没有可删除的方案');return;}
+    const label=p.name||'未命名排程方案';
+    const versions=(p.history||[]).length;
+    if(!window.confirm(`删除方案「${label}」？\n已确认版本 ${versions} 个将一并删除，无法恢复。建议先“导出方案”备份。`))return;
+    stop();
+    const index=db.plans.findIndex(x=>x.id===p.id);
+    db.plans=db.plans.filter(x=>x.id!==p.id);
+    if(!db.plans.length){const next=blank();if(!libraryError)applyLibrary(next);db.plans.push(next);db.currentId=next.id;}
+    else db.currentId=db.plans[Math.min(index,db.plans.length-1)].id;
+    selected=null;save();render();
+    toast('已删除方案：'+label);
+  };
   $('planSelect').onchange=e=>{stop();db.currentId=e.target.value;selected=null;save();render();};
   $('planName').oninput=e=>{const p=plan();p.name=e.target.value.trim()||'未命名排程方案';$('viewTitle').textContent=p.name;const option=$('planSelect').selectedOptions[0];if(option)option.textContent=p.name;save();};
   $('anchorInputs').onchange=e=>{if(e.target.dataset.anchor){plan().settings.anchorDates[e.target.dataset.anchor]=e.target.value;mutate();}};
@@ -213,7 +231,13 @@
     if(!plan().template&&!libraryError)applyLibrary(plan());
     render();if(!readError&&existed&&plan().template)$('saveState').textContent='已读取本机保存的方案';
   }
-  async function refreshCloud(initial=false){
+  function pristine(p){
+    // 只有“刚建出来、一个字都没填”的方案才允许被云端快照静默替换。
+    return !!p&&!p.result&&!p.pending&&!(p.history&&p.history.length)
+      &&!Object.keys(p.settings.anchorDates||{}).length&&!Object.keys(p.settings.locks||{}).length;
+  }
+  async function refreshCloud(options={}){
+    const quiet=!!options.quiet,upgradePristine=!!options.upgradePristine;
     if(libraryLoading)return;libraryLoading=true;$('cloudInfo').textContent='正在读取云端已发布规则与日历…';
     try{
       let storage;try{storage=window.localStorage;}catch(e){/* Browser storage may be disabled. */}
@@ -222,10 +246,20 @@
       defaultLibrary={template:result.data.rules,agenda:result.data.agenda,source:result.mode==='cloud'?'云端已发布事件库':result.mode==='cache'?'云端已发布缓存':'内置事件库兜底',release:copy(result.release)};
       if(!customLibrary&&!libraryError)library=copy(defaultLibrary);
       cloudInfo=(result.mode==='cloud'?'云端已连接':result.mode==='cache'?'正在使用本机发布缓存':'正在使用内置兜底')+(result.release?' · '+result.release.version:'')+(result.warning?'。'+result.warning:'。新建方案使用此版本，已有方案不变。');
+      // 首屏是拿内置包先画出来的；云端到货后，只在空白方案上换成云端快照，动过的方案一律不碰。
+      // 注意：只有真的来自云端（含本机缓存）才换。落到内置兜底时包没变，换了也没有意义，更不该提示“已切换到云端”。
+      const fromCloud=result.mode==='cloud'||result.mode==='cache';
+      const p=plan();
+      if(upgradePristine&&fromCloud&&p&&p.ruleRelease===null&&!customLibrary&&!libraryError&&pristine(p)){
+        applyLibrary(p);save();toast(result.mode==='cache'?'已切换到云端缓存版本':'已切换到云端已发布版本');
+        return;
+      }
     }catch(e){cloudInfo='云端读取失败，保留当前默认数据：'+e.message;}
-    finally{libraryLoading=false;if(initial)start();else{render();toast('已检查云端默认版本，已有方案未改变');}}
+    finally{libraryLoading=false;render();if(!quiet)toast('已检查云端默认版本，已有方案未改变');}
   }
   $('refreshCloud').onclick=()=>window.IPOLibraryCloud?refreshCloud():undefined;
   $('exportCalendars').onclick=()=>download('当前默认日历.json',JSON.stringify({calendars:defaultCalendars,release:defaultRelease},null,2));
-  if(window.IPOLibraryCloud)refreshCloud(true);else start();
+  // 先用内置包把界面画出来（不再等云端），云端回来后再补上默认库并换掉空白方案的快照。
+  start();
+  if(window.IPOLibraryCloud)refreshCloud({quiet:true,upgradePristine:true});
 })();
