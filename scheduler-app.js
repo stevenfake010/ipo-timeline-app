@@ -15,8 +15,10 @@
   const batch2=window.IPOBatch2Revision.revise(batch1);
   const cycle=window.IPOMeetingCycle.revise(window.IPOProspectusGrouping.revise(batch2));
   const embedded={...cycle,template:window.IPOFlexiblePlanning.revise(cycle.template)};
-  let library={template:embedded.template,source:'内置最新事件库',agenda:embedded.agenda},libraryError='';
-  try{const raw=localStorage.getItem(LIBRARY_KEY);if(raw){const saved=JSON.parse(raw),errors=E.validateTemplate(saved.template);if(errors.length)throw new Error(errors.join('；'));library=saved;}}
+  let defaultCalendars=copy(window.IPO_PUBLIC_HOLIDAYS),defaultRelease=null;
+  let defaultLibrary={template:embedded.template,source:'内置最新事件库',agenda:embedded.agenda,release:null};
+  let library=copy(defaultLibrary),libraryError='',customLibrary=false,libraryLoading=false,cloudInfo='当前使用随程序内置的默认数据。';
+  try{const raw=localStorage.getItem(LIBRARY_KEY);if(raw){const saved=JSON.parse(raw),errors=E.validateTemplate(saved.template);if(errors.length)throw new Error(errors.join('；'));library=saved;customLibrary=true;}}
   catch(e){libraryError='本机事件库读取失败，原数据未覆盖：'+e.message;}
   function plan(){return db.plans.find(p=>p.id===db.currentId);}
   function toast(text){$('toast').textContent=text;$('toast').hidden=false;clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('toast').hidden=true,5000);}
@@ -26,13 +28,13 @@
     try{localStorage.setItem(KEY,JSON.stringify(db));$('saveState').textContent='已保存本机 · '+new Date().toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'});}
     catch(e){$('saveState').textContent='本机保存失败：请立即导出方案备份。';toast('本机空间不足或存储不可用，当前修改仅在内存中，请导出方案。');}
   }
-  function blank(){return{id:uid(),name:'未命名排程方案',template:null,source:'',fingerprint:'',settings:{anchorDates:{},locks:{},calendars:copy(window.IPO_PUBLIC_HOLIDAYS),spreadWeeks:true,keepPrevious:true,preferWorkingDays:true,a1BusinessDaysOnly:true,timeBudgetMs:10000},result:null,pending:null,history:[],dirty:true};}
-  function applyLibrary(p){const t=library.template;p.template=copy(t);p.source=library.source;p.fingerprint=fingerprint(t);p.conferenceAgenda=copy(library.agenda||[]);p.settings.a1Id=t.events.find(e=>e.dateMode==='anchor_input'&&/A1/i.test(e.name))?.id||'';}
-  function newPlan(){if(libraryError){status(libraryError,'error');return;}stop();const p=blank();applyLibrary(p);db.plans.push(p);db.currentId=p.id;selected=null;save();render();}
+  function blank(){return{id:uid(),name:'未命名排程方案',template:null,source:'',fingerprint:'',settings:{anchorDates:{},locks:{},calendars:copy(defaultCalendars),calendarRelease:copy(defaultRelease),spreadWeeks:true,keepPrevious:true,preferWorkingDays:true,a1BusinessDaysOnly:true,timeBudgetMs:10000},result:null,pending:null,history:[],dirty:true};}
+  function applyLibrary(p){const t=library.template;p.template=copy(t);p.source=library.source;p.ruleRelease=copy(library.release||null);p.fingerprint=fingerprint(t);p.conferenceAgenda=copy(library.agenda||[]);p.settings.a1Id=t.events.find(e=>e.dateMode==='anchor_input'&&/A1/i.test(e.name))?.id||'';}
+  async function newPlan(){if(libraryLoading){toast('正在读取已发布规则，请稍候');return;}if(libraryError){status(libraryError,'error');return;}if(window.IPOLibraryCloud&&window.IPO_CLOUD_CONFIG?.enabled)await refreshCloud();stop();const p=blank();applyLibrary(p);db.plans.push(p);db.currentId=p.id;selected=null;save();render();}
   function currentResult(){return plan()?.pending||plan()?.result;}
   function mutate(){stop();const p=plan();p.pending=null;p.dirty=true;save();status(p.result?'设置已改变，下面仍是上次结果。请重新试排后确认新版本。':'设置已更新，请生成新的排程预览。','warning');renderPending();renderBoard();renderDetails();}
   function fingerprint(t){let h=2166136261;for(const c of JSON.stringify(t)){h^=c.charCodeAt(0);h=Math.imul(h,16777619);}return (h>>>0).toString(16).padStart(8,'0');}
-  function effectiveCalendars(saved){const result=copy(window.IPO_PUBLIC_HOLIDAYS);for(const [name,c] of Object.entries(saved||{}))if(!c.builtin||!result[name])result[name]=copy(c);return result;}
+  function effectiveCalendars(saved){return{...copy(defaultCalendars),...copy(saved||{})};}
   function loadRules(t,source){
     const errors=E.validateTemplate(t);if(errors.length)throw new Error(errors.join('\n'));
     stop();let p=plan();if(!p||p.template){p=blank();db.plans.push(p);db.currentId=p.id;}
@@ -44,10 +46,11 @@
   function render(){
     const p=plan();$('planSelect').innerHTML=db.plans.map(x=>`<option value="${esc(x.id)}">${esc(x.name)}</option>`).join('');$('planSelect').value=p?.id||'';
     if(!p)return;
+    $('cloudInfo').textContent=cloudInfo+(customLibrary?' 本机自定义事件库仍优先，云端不会覆盖它。':'');
     $('planName').value=p.name;
     const t=p.template;$('eventCount').textContent=t?t.events.length+' 个事件':'未载入';
     $('snapshotInfo').textContent=t?`${p.source==='内置最新事件库'?'内置事件库快照':p.source} · 快照 ${p.fingerprint} · ${t.threads.length} 个线程`:'独立复制规则，不改动采集器。';
-    $('ruleUpdateNote').textContent=t&&t.ruleRevision!==embedded.template.ruleRevision?'当前方案保留原规则。如需最新默认规则，请新建方案；已有方案不会改变。':'';
+    $('ruleUpdateNote').textContent=t&&(p.ruleRelease?.id!==library.release?.id||p.fingerprint!==fingerprint(library.template))?'当前方案保留自己的规则快照。新建方案才使用当前默认规则；已有方案不会改变。':'';
     const anchors=t?.events.filter(e=>e.dateMode==='anchor_input')||[];
     $('anchorInputs').innerHTML=anchors.length?anchors.map(e=>`<label>${esc(e.name)}<input type="date" data-anchor="${esc(e.id)}" value="${esc(p.settings.anchorDates[e.id]||'')}"></label>`).join(''):'<p class="muted">载入规则后，填写项目日期。</p>';
     $('a1Select').innerHTML='<option value="">不指定</option>'+anchors.map(e=>`<option value="${esc(e.id)}">${esc(e.name)}</option>`).join('');$('a1Select').value=p.settings.a1Id||'';
@@ -168,13 +171,13 @@
   function download(name,content,type='application/json'){const url=URL.createObjectURL(new Blob([content],{type})),a=document.createElement('a');a.href=url;a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);}
   async function fileJSON(input,fn){try{const f=input.files[0];if(f){if(f.size>15*1024*1024)throw new Error('文件超过15MB，请检查文件类型');await fn(JSON.parse(await f.text()),f.name);}}catch(e){status(e.message,'error');toast('未导入：'+e.message);}finally{input.value='';}}
   $('exportRules').onclick=()=>download('当前事件规则库.json',JSON.stringify(library.template,null,2));
-  $('resetLibrary').onclick=()=>{try{localStorage.removeItem(LIBRARY_KEY);library={template:embedded.template,source:'内置最新事件库',agenda:embedded.agenda};libraryError='';status('已恢复内置最新事件库，仅影响今后新建的方案；已有方案未改变。','success');toast('新建方案将使用内置最新事件库');}catch(e){status('无法恢复内置事件库：'+e.message,'error');}};
+  $('resetLibrary').onclick=()=>{if(libraryLoading){toast('请等待云端读取完成');return;}try{localStorage.removeItem(LIBRARY_KEY);library=copy(defaultLibrary);customLibrary=false;libraryError='';render();status('已恢复当前默认事件库，仅影响今后新建的方案；已有方案未改变。','success');toast('新建方案将使用当前默认事件库');}catch(e){status('无法恢复默认事件库：'+e.message,'error');}};
   $('importRules').onchange=e=>fileJSON(e.target,(t,name)=>{
     const errors=E.validateTemplate(t);if(errors.length)throw new Error(errors.join('；'));
-    const same=['events','threads','lanes'].every(k=>JSON.stringify(t[k])===JSON.stringify(embedded.template[k]));
-    const next={template:copy(t),source:'本机导入事件库 · '+name,agenda:same?copy(embedded.agenda):[]};
+    const same=['events','threads','lanes'].every(k=>JSON.stringify(t[k])===JSON.stringify(defaultLibrary.template[k]));
+    const next={template:copy(t),source:'本机导入事件库 · '+name,agenda:same?copy(defaultLibrary.agenda):[],release:null};
     try{localStorage.setItem(LIBRARY_KEY,JSON.stringify(next));}catch(err){throw new Error('无法保存事件库，原规则未更改：'+err.message);}
-    library=next;libraryError='';status('事件库已更新，仅影响此浏览器之后新建的方案；已有方案与采集器数据未改变。','success');toast('事件库已保存，新建方案时生效');
+    library=next;customLibrary=true;libraryError='';render();status('本机事件库已更新，仅影响此浏览器之后新建的方案，未发布到云端；已有方案与采集器数据未改变。','success');toast('本机事件库已保存，新建方案时生效');
   });
   $('newPlan').onclick=newPlan;
   $('copyPlan').onclick=()=>{stop();const p=copy(plan());p.id=uid();p.name+=' · 副本';p.pending=null;db.plans.push(p);db.currentId=p.id;save();render();};
@@ -203,9 +206,26 @@
   $('exportCSV').onclick=()=>{const p=plan(),r=currentResult();if(!r){toast('请先生成日期');return;}const quote=v=>'"'+String(v??'').replace(/^[=+\-@]/,"'$&").replace(/"/g,'""')+'"';const rows=[['条线','线程','事件编码','事件名称','推荐日期','周一起日','日期状态']];for(const e of p.template.events){const th=p.template.threads.find(x=>x.id===e.threadId),lane=p.template.lanes.find(x=>x.id===th.laneId);rows.push([lane.name,th.name,e.code,e.name,r.run.dates[e.id],E.iso(E.week(E.parseDate(r.run.dates[e.id]))),r.settings.locks?.[e.id]?'锁定':e.dateMode==='anchor_input'?'锚点':'推荐']);}download(p.name+'_日期表.csv','\ufeff'+rows.map(row=>row.map(quote).join(',')).join('\r\n'),'text/csv;charset=utf-8');};
   $('calendarSample').onclick=()=>download('日历格式示例_需自行填入真实节假日.json',JSON.stringify({note:'仅为格式示例，空列表不代表实际无假期。填入完整资料后再导入。',calendars:{hk:{version:'请填写日历来源与版本',from:'2026-01-01',to:'2027-12-31',holidays:[],workingDays:[]},cn:{version:'请填写日历来源与版本',from:'2026-01-01',to:'2027-12-31',holidays:[],workingDays:[]}}},null,2));
   $('importCalendar').onchange=e=>fileJSON(e.target,(data)=>{if(!data.calendars||typeof data.calendars!=='object'||Array.isArray(data.calendars))throw new Error('缺少calendars日历对象');for(const [name,c] of Object.entries(data.calendars)){if(!['hk','cn','us','project'].includes(name))throw new Error('不支持的日历名称：'+name);if(!c.version||c.version.includes('请填写')||!Array.isArray(c.holidays)||!Array.isArray(c.workingDays))throw new Error('请填写真实日历来源版本及节假日/补班日数组，不能直接导入格式示例');const from=E.parseDate(c.from),to=E.parseDate(c.to);if(from>to)throw new Error('日历覆盖范围不正确');if((c.estimatedFrom&&!c.estimatedTo)||(!c.estimatedFrom&&c.estimatedTo))throw new Error('暂定区间须同时填写起止日期');if(c.estimatedFrom&&(E.parseDate(c.estimatedFrom)<from||E.parseDate(c.estimatedTo)>to||E.parseDate(c.estimatedFrom)>E.parseDate(c.estimatedTo)))throw new Error('暂定区间不在日历覆盖范围内');c.builtin=false;for(const d of [...c.holidays,...c.workingDays]){const day=E.parseDate(d);if(day<from||day>to)throw new Error('假期或补班日期超出该日历覆盖范围');}}plan().settings.calendars={...plan().settings.calendars,...copy(data.calendars)};mutate();render();toast('已载入用户提供的日历，请重新试排');});
-  if(!db.plans.length){const p=blank();if(!libraryError)applyLibrary(p);db.plans.push(p);db.currentId=p.id;}
-  if(!plan())db.currentId=db.plans[0].id;
-  if(!plan().template&&!libraryError)applyLibrary(plan());
-  render();
-  if(!readError && plan().template)$('saveState').textContent='已读取本机保存的方案';
+  function start(){
+    const existed=db.plans.length>0;
+    if(!db.plans.length){const p=blank();if(!libraryError)applyLibrary(p);db.plans.push(p);db.currentId=p.id;}
+    if(!plan())db.currentId=db.plans[0].id;
+    if(!plan().template&&!libraryError)applyLibrary(plan());
+    render();if(!readError&&existed&&plan().template)$('saveState').textContent='已读取本机保存的方案';
+  }
+  async function refreshCloud(initial=false){
+    if(libraryLoading)return;libraryLoading=true;$('cloudInfo').textContent='正在读取云端已发布规则与日历…';
+    try{
+      let storage;try{storage=window.localStorage;}catch(e){/* Browser storage may be disabled. */}
+      const result=await window.IPOLibraryCloud.load({config:window.IPO_CLOUD_CONFIG,engine:E,embedded:{rules:embedded.template,agenda:embedded.agenda,calendars:window.IPO_PUBLIC_HOLIDAYS},storage,fetcher:window.fetch.bind(window)});
+      defaultRelease=result.release;defaultCalendars=copy(result.data.calendars);
+      defaultLibrary={template:result.data.rules,agenda:result.data.agenda,source:result.mode==='cloud'?'云端已发布事件库':result.mode==='cache'?'云端已发布缓存':'内置事件库兜底',release:copy(result.release)};
+      if(!customLibrary&&!libraryError)library=copy(defaultLibrary);
+      cloudInfo=(result.mode==='cloud'?'云端已连接':result.mode==='cache'?'正在使用本机发布缓存':'正在使用内置兜底')+(result.release?' · '+result.release.version:'')+(result.warning?'。'+result.warning:'。新建方案使用此版本，已有方案不变。');
+    }catch(e){cloudInfo='云端读取失败，保留当前默认数据：'+e.message;}
+    finally{libraryLoading=false;if(initial)start();else{render();toast('已检查云端默认版本，已有方案未改变');}}
+  }
+  $('refreshCloud').onclick=()=>window.IPOLibraryCloud?refreshCloud():undefined;
+  $('exportCalendars').onclick=()=>download('当前默认日历.json',JSON.stringify({calendars:defaultCalendars,release:defaultRelease},null,2));
+  if(window.IPOLibraryCloud)refreshCloud(true);else start();
 })();
