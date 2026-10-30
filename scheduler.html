@@ -7,7 +7,7 @@
 </head>
 <body>
 <header class="topbar">
-  <div class="brand"><span class="brand-mark">JT</span><div><small>PROJECT TIMELINE</small><h1>IPO 项目排程器 <span>v0.10 弹性排程版</span></h1></div></div>
+  <div class="brand"><span class="brand-mark">JT</span><div><small>PROJECT TIMELINE</small><h1>IPO 项目排程器 <span>v0.11 云端规则版</span></h1></div></div>
   <nav><button id="exportPlan">导出方案</button><label class="button" for="importPlan">导入方案<input type="file" id="importPlan" accept=".json,application/json" hidden></label></nav>
 </header>
 <div class="workspace">
@@ -20,12 +20,15 @@
       <p id="snapshotInfo" class="muted">新方案自动使用当前事件库。</p>
       <p id="ruleUpdateNote" class="hint"></p>
       <details><summary>事件库管理（测试阶段）</summary>
+      <p id="cloudInfo" class="hint">正在检查云端默认数据。</p>
+      <button id="refreshCloud" class="wide">刷新云端已发布版本</button>
       <p class="hint">更新事件库只影响本浏览器之后新建的方案，已有方案的规则快照不会变更。此入口并非权限保护。</p>
       <a href="collector.html">打开规则采集器 ↗</a>
       <label class="button wide" for="importRules">导入规则 JSON<input type="file" id="importRules" accept=".json,application/json" hidden></label>
       <button id="exportRules" class="wide">导出当前事件库</button>
-      <button id="resetLibrary" class="wide">恢复内置最新事件库</button>
-      <p class="hint">采集器内编辑完成后导出 JSON，再在此处导入。</p></details>
+      <button id="resetLibrary" class="wide">恢复当前默认事件库</button>
+      <button id="exportCalendars" class="wide">导出当前默认日历</button>
+      <p class="hint">这里的规则导入仅用于本机测试，不会发布到云端。正式发布暂通过 Supabase 管理控制台或受权管理工具操作；网页无云端写权限。</p></details>
     </section>
     <section><h3>02 项目锚点</h3><div id="anchorInputs"><p class="muted">载入规则后，填写项目日期。</p></div>
       <label>A1锚点（用于备选试算）<select id="a1Select"><option value="">不指定</option></select></label>
@@ -75,6 +78,8 @@
 <script src="scheduler-meeting-cycle.js?v=0.9.0"></script>
 <script src="scheduler-flexible-planning.js?v=0.10.0"></script>
 <script src="scheduler-public-holidays.js?v=0.5.0"></script>
-<script src="scheduler-app.js?v=0.10.0"></script>
+<script src="cloud-config.js?v=0.11.0"></script>
+<script src="scheduler-cloud-library.js?v=0.11.0"></script>
+<script src="scheduler-app.js?v=0.11.0"></script>
 </body>
 </html>
