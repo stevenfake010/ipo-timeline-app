@@ -5,6 +5,8 @@
   const esc=x=>String(x??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const uid=()=>typeof crypto.randomUUID==='function'?crypto.randomUUID():Date.now()+'-'+Math.random().toString(36).slice(2);
   const unitLabel=unit=>({business_day:'工作日',calendar_day:'自然日',calendar_month:'自然月'}[unit]||unit);
+  // These switches are product defaults now: the UI no longer exposes them, and plans always run with them on.
+  const FORCED_SETTINGS=['spreadWeeks','keepPrevious','preferWorkingDays','a1BusinessDaysOnly'];
   let db={version:1,currentId:null,plans:[]}, worker=null, workerURL=null, generation=0, selected=null, collapsed=new Set(), toastTimer;
   let readError='';
   try { const raw=localStorage.getItem(KEY);if(raw){const parsed=JSON.parse(raw);if(parsed.version!==1||!Array.isArray(parsed.plans))throw new Error('方案存储格式无法识别');db=parsed;} }catch(e){readError='无法读取已有方案，未覆盖原存储。请导出当前工作后检查浏览器存储：'+e.message;}
@@ -54,9 +56,8 @@
     const anchors=t?.events.filter(e=>e.dateMode==='anchor_input')||[];
     $('anchorInputs').innerHTML=anchors.length?anchors.map(e=>`<label>${esc(e.name)}<input type="date" data-anchor="${esc(e.id)}" value="${esc(p.settings.anchorDates[e.id]||'')}"></label>`).join(''):'<p class="muted">载入规则后，填写项目日期。</p>';
     $('a1Select').innerHTML='<option value="">不指定</option>'+anchors.map(e=>`<option value="${esc(e.id)}">${esc(e.name)}</option>`).join('');$('a1Select').value=p.settings.a1Id||'';
-    $('a1BusinessDaysOnly').checked=p.settings.a1BusinessDaysOnly===true;
-    $('spreadWeeks').checked=p.settings.spreadWeeks!==false;$('keepPrevious').checked=p.settings.keepPrevious!==false;
-    $('preferWorkingDays').checked=p.settings.preferWorkingDays!==false;
+    for(const k of FORCED_SETTINGS)p.settings[k]=true;
+    $('a1BusinessDaysOnly').checked=true;$('spreadWeeks').checked=true;$('keepPrevious').checked=true;$('preferWorkingDays').checked=true;
     $('replanMode').value=p.settings.replanMode||'optimize';
     $('horizonStart').value=p.settings.horizonStart||'';$('horizonEnd').value=p.settings.horizonEnd||'';$('timeBudget').value=p.settings.timeBudgetMs||10000;
     $('calendarInfo').textContent=Object.entries(effectiveCalendars(p.settings.calendars)).map(([k,v])=>`${k}：${v.version}（${v.from} 至 ${v.to}）`).join('；');
@@ -133,6 +134,7 @@
   function stop(){generation++;if(worker){worker.terminate();worker=null;URL.revokeObjectURL(workerURL);workerURL=null;$('cancel').disabled=true;$('run').disabled=!plan()?.template;}}
   function begin(release=false){
     const p=plan();if(!p?.template)return;
+    for(const k of FORCED_SETTINGS)p.settings[k]=true;
     p.settings.calendars=effectiveCalendars(p.settings.calendars);
     stop();p.pending=null;save();renderPending();renderBoard();$('conflicts').hidden=true;
     const settings=copy(p.settings);settings.previousDates=p.result?.run.dates;
@@ -181,6 +183,20 @@
   });
   $('newPlan').onclick=newPlan;
   $('copyPlan').onclick=()=>{stop();const p=copy(plan());p.id=uid();p.name+=' · 副本';p.pending=null;db.plans.push(p);db.currentId=p.id;save();render();};
+  $('deletePlan').onclick=()=>{
+    const p=plan();
+    if(!p){toast('当前没有可删除的方案');return;}
+    const label=p.name||'未命名排程方案';
+    const versions=(p.history||[]).length;
+    if(!window.confirm(`删除方案「${label}」？\n已确认版本 ${versions} 个将一并删除，无法恢复。建议先“导出方案”备份。`))return;
+    stop();
+    const index=db.plans.findIndex(x=>x.id===p.id);
+    db.plans=db.plans.filter(x=>x.id!==p.id);
+    if(!db.plans.length){const next=blank();if(!libraryError)applyLibrary(next);db.plans.push(next);db.currentId=next.id;}
+    else db.currentId=db.plans[Math.min(index,db.plans.length-1)].id;
+    selected=null;save();render();
+    toast('已删除方案：'+label);
+  };
   $('planSelect').onchange=e=>{stop();db.currentId=e.target.value;selected=null;save();render();};
   $('planName').oninput=e=>{const p=plan();p.name=e.target.value.trim()||'未命名排程方案';$('viewTitle').textContent=p.name;const option=$('planSelect').selectedOptions[0];if(option)option.textContent=p.name;save();};
   $('anchorInputs').onchange=e=>{if(e.target.dataset.anchor){plan().settings.anchorDates[e.target.dataset.anchor]=e.target.value;mutate();}};

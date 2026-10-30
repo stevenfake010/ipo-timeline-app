@@ -10,6 +10,7 @@
 - 自动生成事件编码，既有 ID/code 稳定，依赖引用 ID。不要重编号、静默覆盖用户输入或擅自增删事件；用户明确要求增补时例外。
 - 主要规则是前置事件及最短/目标/最长间隔。目标、最长可空，空不是0。多数工作没有真实最长间隔，不用人为上限强迫紧排。
 - 默认进入排程器；采集器是测试期后台，不做复杂事件库版本选择器，暂不做责任和适用性管理。
+- v0.12 起界面按终端用户视角收敛：事件库管理、日历与计算范围两块后台入口不再展示；`spreadWeeks` / `keepPrevious` / `preferWorkingDays` / `a1BusinessDaysOnly` 四个开关恒为开，逻辑保留但不再让用户勾选。方案增加删除功能（含二次确认）。元素仍留在 DOM 中并置 `hidden`，是刻意的：脚本按 id 取用，删除元素会让初始化直接报错。
 - 测试期维护方式已选定：用户提意见 → 助手/受权开发者修改云端草稿 → 结构与短/中/长窗口试排 → 发布。暂不开发网页管理员写入界面。
 - 核心优先：排程合理性和数据保护。非核心 UI/外围功能不要过度测试。
 - 不使用 Sites。GitHub 源码、Vercel 静态部署。事件库已获准公开，**不代表本机真实项目资料、个人方案和密钥也可公开**。
@@ -23,7 +24,7 @@
 | 正式网站 | https://ipo-timeline-app.vercel.app/ |
 | GitHub（公开） | https://github.com/stevenfake010/ipo-timeline-app |
 | 本地目录 | `/Users/ethanzuo/Documents/IPO timeline` |
-| 界面 / 引擎 | v0.11 / `IPOScheduler.VERSION = 0.10.0`，版本不同是正常的 |
+| 界面 / 引擎 | v0.12 / `IPOScheduler.VERSION = 0.10.0`，版本不同是正常的 |
 | 内置默认包 | `2026-10-30-r8`，129事件、7条线、23线程；未来以当前云端包为准 |
 | 初始云端发布 | `2026-10-30-r8.initial`，ID `4508a256-d18a-4da4-8384-059605793dd0` |
 | Supabase | `ipo-timeline-app`，ref `mffcztvzoaayihqttrjo`，新加坡 `ap-southeast-1` |
