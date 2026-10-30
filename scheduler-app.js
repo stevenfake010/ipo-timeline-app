@@ -9,7 +9,8 @@
   let readError='';
   try { const raw=localStorage.getItem(KEY);if(raw){const parsed=JSON.parse(raw);if(parsed.version!==1||!Array.isArray(parsed.plans))throw new Error('方案存储格式无法识别');db=parsed;} }catch(e){readError='无法读取已有方案，未覆盖原存储。请导出当前工作后检查浏览器存储：'+e.message;}
   const reviewed=window.IPORuleRevision.revise(window.IPO_DRAFT_RULES,window.IPO_DRAFT_RULES).template;
-  const embedded=window.IPOProspectusRevision.revise(reviewed,reviewed);
+  const prospectus=window.IPOProspectusRevision.revise(reviewed,reviewed);
+  const embedded={...prospectus,template:window.IPOFeedbackRevision.revise(prospectus.template)};
   let library={template:embedded.template,source:'内置最新事件库',agenda:embedded.agenda},libraryError='';
   try{const raw=localStorage.getItem(LIBRARY_KEY);if(raw){const saved=JSON.parse(raw),errors=E.validateTemplate(saved.template);if(errors.length)throw new Error(errors.join('；'));library=saved;}}
   catch(e){libraryError='本机事件库读取失败，原数据未覆盖：'+e.message;}
@@ -162,6 +163,7 @@
   function download(name,content,type='application/json'){const url=URL.createObjectURL(new Blob([content],{type})),a=document.createElement('a');a.href=url;a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);}
   async function fileJSON(input,fn){try{const f=input.files[0];if(f){if(f.size>15*1024*1024)throw new Error('文件超过15MB，请检查文件类型');await fn(JSON.parse(await f.text()),f.name);}}catch(e){status(e.message,'error');toast('未导入：'+e.message);}finally{input.value='';}}
   $('exportRules').onclick=()=>download('当前事件规则库.json',JSON.stringify(library.template,null,2));
+  $('resetLibrary').onclick=()=>{try{localStorage.removeItem(LIBRARY_KEY);library={template:embedded.template,source:'内置最新事件库',agenda:embedded.agenda};libraryError='';status('已恢复内置最新事件库，仅影响今后新建的方案；已有方案未改变。','success');toast('新建方案将使用内置最新事件库');}catch(e){status('无法恢复内置事件库：'+e.message,'error');}};
   $('importRules').onchange=e=>fileJSON(e.target,(t,name)=>{
     const errors=E.validateTemplate(t);if(errors.length)throw new Error(errors.join('；'));
     const same=['events','threads','lanes'].every(k=>JSON.stringify(t[k])===JSON.stringify(embedded.template[k]));
