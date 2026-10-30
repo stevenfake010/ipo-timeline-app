@@ -8,7 +8,7 @@
 <body>
 <header class="topbar">
   <div class="brand"><span class="brand-mark">JT</span><div><small>PROJECT TIMELINE</small><h1>IPO 项目排程器 <span>v0.3 大会规则版</span></h1></div></div>
-  <nav><a href="index.html">规则采集器 ↗</a><button id="exportPlan">导出方案</button><label class="button" for="importPlan">导入方案<input type="file" id="importPlan" accept=".json,application/json" hidden></label></nav>
+  <nav><button id="exportPlan">导出方案</button><label class="button" for="importPlan">导入方案<input type="file" id="importPlan" accept=".json,application/json" hidden></label></nav>
 </header>
 <div class="workspace">
   <aside class="settings">
@@ -16,14 +16,14 @@
     <label>当前方案<select id="planSelect"><option value="">新建方案</option></select></label>
     <div class="button-row"><button id="newPlan">＋ 新建</button><button id="copyPlan">复制方案</button></div>
     <label>方案名称<input id="planName" placeholder="例如：A1 首轮排程"></label>
-    <section><div class="heading"><h3>01 事件规则快照</h3><span id="eventCount">未载入</span></div>
-      <p id="snapshotInfo" class="muted">独立复制规则，不改动采集器。</p>
+    <section><div class="heading"><h3>01 项目规则</h3><span id="eventCount">未载入</span></div>
+      <p id="snapshotInfo" class="muted">新方案自动使用当前事件库。</p>
+      <details><summary>事件库管理（测试阶段）</summary>
+      <p class="hint">更新事件库只影响本浏览器之后新建的方案，已有方案的规则快照不会变更。此入口并非权限保护。</p>
+      <a href="collector.html">打开规则采集器 ↗</a>
       <label class="button wide" for="importRules">导入规则 JSON<input type="file" id="importRules" accept=".json,application/json" hidden></label>
-      <div class="button-row"><button id="readCollector">读取采集器</button><button id="loadDraft">载入补充初稿</button></div>
-      <button id="reviseRules" class="wide">基于当前规则创建修订副本</button>
-      <button id="reviseProspectus" class="wide">创建招股书大会修订副本</button>
-      <button id="exportRules" class="wide">导出当前事件规则</button>
-      <p class="hint">补充初稿含124个事件，仍需人工核对。直接打开本地文件时，可从采集器点击“项目排程”传入当前数据。</p>
+      <button id="exportRules" class="wide">导出当前事件库</button>
+      <p class="hint">采集器内编辑完成后导出 JSON，再在此处导入。</p></details>
     </section>
     <section><h3>02 项目锚点</h3><div id="anchorInputs"><p class="muted">载入规则后，填写项目日期。</p></div>
       <label>A1锚点（用于备选试算）<select id="a1Select"><option value="">不指定</option></select></label>
@@ -56,7 +56,7 @@
     <div id="pendingBar" class="pending" hidden><div><strong id="pendingTitle">新结果待确认</strong><p id="pendingText"></p></div><div class="button-row"><button id="acceptResult" class="primary">采用此版本</button><button id="discardResult">放弃预览</button></div></div>
     <div id="conflicts" hidden></div>
     <div class="toolbar"><input id="search" type="search" aria-label="搜索事件" placeholder="搜索事件名称或编码"><select id="viewMode" aria-label="时间表视图"><option value="weeks">按周时间表</option><option value="list">事件清单</option><option value="changes">本次变动</option></select><button id="jumpStart">跳至启动</button><button id="jumpA1">跳至A1</button><button id="collapseAll">全部收起</button><button id="expandAll">全部展开</button><button id="exportCSV">导出日期表</button></div>
-    <div id="board" class="board"><div class="empty"><div class="empty-icon">日</div><h3>从一份规则快照开始</h3><p>左侧载入现有事件库，填写启动会、A1及申报基准日。<br>引擎会同时检查前置顺序、最短/最长间隔和固定日期。</p><button id="emptyLoad" class="primary">载入已补充的124个事件</button></div></div>
+    <div id="board" class="board"><div class="empty"><div class="empty-icon">日</div><h3>填写项目日期</h3><p>填写启动会、A1及申报基准日后生成时间表。</p></div></div>
     <details id="historySection" class="history"><summary>已确认版本与恢复</summary><div id="historyList">还没有已确认的排程。</div></details>
   </main>
   <aside id="inspector" class="inspector"><div class="heading"><h2>事件详情</h2><button id="closeInspector" aria-label="关闭详情">×</button></div><div id="eventDetails"><p class="muted">生成时间表后，点击任意事件查看日期依据、前后关系与人工锁定。</p></div></aside>
@@ -66,6 +66,6 @@
 <script src="scheduler-draft.js?v=0.1.0"></script>
 <script src="scheduler-rule-revision.js?v=0.2.0"></script>
 <script src="scheduler-prospectus-revision.js?v=0.3.0"></script>
-<script src="scheduler-app.js?v=0.3.0"></script>
+<script src="scheduler-app.js?v=0.4.0"></script>
 </body>
 </html>

@@ -272,16 +272,7 @@
     dom.projectForm.addEventListener("submit", saveProjectDialog);
     dom.importFile.addEventListener("change", importJson);
     document.getElementById("openSchedulerButton")?.addEventListener("click", () => {
-      const target = window.open("scheduler.html", "ipo-scheduler");
-      if (!target) { window.alert("请允许打开本地排程器窗口，或手动打开 scheduler.html 并导入规则 JSON。"); return; }
-      const listener = (event) => {
-        if (event.source !== target || event.data?.type !== "ipo-scheduler-ready") return;
-        if (event.origin !== location.origin && !(location.protocol === "file:" && event.origin === "null")) return;
-        target.postMessage({ type: "ipo-scheduler-snapshot", template: JSON.parse(JSON.stringify(state)) }, location.origin === "null" ? "*" : location.origin);
-        window.removeEventListener("message", listener);
-      };
-      window.addEventListener("message", listener);
-      window.setTimeout(() => window.removeEventListener("message", listener), 30000);
+      window.location.href = "scheduler.html";
     });
     dom.issueList.addEventListener("click", handleIssueClick);
 

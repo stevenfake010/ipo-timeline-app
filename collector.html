@@ -1,0 +1,297 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="港股 IPO 排程规则的本地事件信息采集工具"
+    />
+    <title>IPO 排程规则采集器</title>
+    <link rel="stylesheet" href="styles.css?v=1.5.0" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div class="brand-block">
+          <div class="brand-mark">JT</div>
+          <div>
+            <div class="eyebrow">PROJECT TIMELINE DESIGN</div>
+            <div class="title-line">
+              <h1>IPO 排程规则采集器</h1>
+              <span class="version-badge">v1.6 · 本地排程入口</span>
+            </div>
+          </div>
+        </div>
+        <div class="topbar-actions">
+          <span class="save-state" id="saveState">仅保存在本机</span>
+          <button class="button button-secondary" id="openSchedulerButton" type="button">返回排程器 ↗</button>
+          <button class="button button-ghost" id="projectSettingsButton" type="button">
+            项目设置
+          </button>
+          <label class="button button-ghost" for="importFile">导入 JSON</label>
+          <input id="importFile" type="file" accept="application/json,.json" hidden />
+          <button class="button button-primary" id="exportButton" type="button">
+            导出 JSON
+          </button>
+        </div>
+      </header>
+
+      <main class="workspace">
+        <aside class="sidebar">
+          <div class="project-card">
+            <span class="project-label">当前项目</span>
+            <strong id="projectNameDisplay">未命名港股 IPO 项目</strong>
+            <p id="projectDescriptionDisplay">请先建立条线、线程和事件。</p>
+            <div class="metric-row">
+              <div><strong id="laneCount">0</strong><span>条线</span></div>
+              <div><strong id="threadCount">0</strong><span>线程</span></div>
+              <div><strong id="eventCount">0</strong><span>事件</span></div>
+            </div>
+          </div>
+
+          <div class="sidebar-tools">
+            <div class="search-wrap">
+              <span aria-hidden="true">⌕</span>
+              <input id="searchInput" type="search" placeholder="搜索事件名称或编码" />
+            </div>
+            <button class="button button-small button-dark" id="addLaneButton" type="button">
+              ＋ 新增条线
+            </button>
+          </div>
+
+          <div class="tree-heading">
+            <span>项目结构</span>
+            <span class="tree-heading-actions" aria-label="项目结构显示控制">
+              <button class="tree-control" id="collapseAllButton" type="button">全部收起</button>
+              <span class="tree-control-divider" aria-hidden="true">/</span>
+              <button class="tree-control" id="expandAllButton" type="button">全部展开</button>
+            </span>
+          </div>
+          <nav class="structure-tree" id="structureTree" aria-label="项目结构"></nav>
+
+          <div class="sidebar-footer">
+            <button class="button button-secondary full-width" id="validateButton" type="button">
+              运行信息完整性检查
+            </button>
+            <button class="text-button danger-text" id="resetButton" type="button">
+              清空本机数据
+            </button>
+          </div>
+        </aside>
+
+        <section class="editor-pane">
+          <div class="empty-state" id="emptyState">
+            <div class="empty-orbit"><span>3</span></div>
+            <p class="eyebrow">START FROM STRUCTURE</p>
+            <h2>从第一条条线开始采集</h2>
+            <p>
+              本工具不预置任何真实项目事件，也不会从样本推断规则。所有条线、线程、事件和先后关系均由你亲自填写。
+            </p>
+            <button class="button button-primary" id="emptyAddLaneButton" type="button">
+              新增第一条线
+            </button>
+          </div>
+
+          <form class="event-editor hidden" id="eventEditor">
+            <div class="editor-heading">
+              <div>
+                <div class="breadcrumb" id="eventBreadcrumb">条线 / 线程</div>
+                <h2 id="eventTitle">未命名事件</h2>
+              </div>
+              <div class="editor-actions">
+                <button class="button button-ghost button-small" id="duplicateEventButton" type="button">
+                  复制事件
+                </button>
+                <button class="button button-danger button-small" id="deleteEventButton" type="button">
+                  删除事件
+                </button>
+              </div>
+            </div>
+
+            <section class="form-card">
+              <div class="section-heading">
+                <div class="section-index">01</div>
+                <div>
+                  <h3>事件身份</h3>
+                  <p>定义这个事件是什么，以及它在三层架构中的位置。</p>
+                </div>
+              </div>
+              <div class="form-grid two-cols">
+                <label class="field">
+                  <span>事件编码</span>
+                  <input data-field="code" type="text" readonly aria-readonly="true" />
+                  <small class="field-hint">系统自动生成，创建后保持不变</small>
+                </label>
+                <label class="field">
+                  <span>事件名称 <b>*</b></span>
+                  <input data-field="name" type="text" placeholder="使用明确、可验证的完成动作命名" />
+                </label>
+                <label class="field">
+                  <span>所属条线</span>
+                  <select id="eventLaneSelect" disabled></select>
+                </label>
+                <label class="field">
+                  <span>所属线程</span>
+                  <select data-field="threadId" id="eventThreadSelect"></select>
+                </label>
+                <label class="field span-2">
+                  <span>事件定义</span>
+                  <textarea data-field="description" rows="3" placeholder="说明何时可认定该事件已完成；不要只写模糊工作名称。"></textarea>
+                </label>
+              </div>
+            </section>
+
+            <section class="form-card">
+              <div class="section-heading">
+                <div class="section-index">02</div>
+                <div>
+                  <h3>事件自身的时间信息</h3>
+                  <p>锚点由项目输入；普通事件通常由前置关系计算。</p>
+                </div>
+              </div>
+              <div class="form-grid two-cols date-mode-grid">
+                <label class="field">
+                  <span>日期产生方式 <b>*</b></span>
+                  <select data-field="dateMode">
+                    <option value="calculated">由前置关系计算</option>
+                    <option value="anchor_input">项目排程时输入锚点日期</option>
+                  </select>
+                </label>
+                <div class="mode-explainer">
+                  <strong>只有两种定位方式</strong>
+                  <span>锚点由项目输入日期；其他节点全部通过前置关系计算。</span>
+                </div>
+              </div>
+            </section>
+
+            <section class="form-card dependency-card">
+              <div class="section-heading dependency-heading">
+                <div class="section-index">03</div>
+                <div>
+                  <h3>前置事件与间隔规则</h3>
+                  <p>可以添加多个前置节点；默认必须全部满足。持续工作用“启动”和“完成”两个节点表示。</p>
+                </div>
+                <button class="button button-secondary button-small" id="addDependencyButton" type="button">
+                  ＋ 添加前置关系
+                </button>
+              </div>
+              <div class="dependency-list" id="dependencyList"></div>
+              <div class="dependency-empty" id="dependencyEmpty">
+                尚未添加前置事件。非锚点且由关系计算的事件至少需要一条前置关系。
+              </div>
+            </section>
+
+          </form>
+        </section>
+
+        <aside class="inspector">
+          <section class="inspector-card readiness-card">
+            <div class="inspector-label">信息完整度</div>
+            <div class="readiness-value"><strong id="readinessScore">0%</strong><span id="readinessText">尚未录入事件</span></div>
+            <div class="progress-track"><div id="readinessBar"></div></div>
+          </section>
+
+          <section class="inspector-card">
+            <div class="inspector-heading">
+              <h3>引擎检查</h3>
+              <span id="issueCountBadge" class="count-badge">0</span>
+            </div>
+            <div class="issue-list" id="issueList">
+              <p class="muted-copy">录入事件后，这里会检查缺失字段、非法区间、循环依赖和未连接锚点的事件。</p>
+            </div>
+          </section>
+
+          <section class="inspector-card logic-card">
+            <div class="inspector-label">已确定的计算口径</div>
+            <ul>
+              <li>每个事件都是一个单日期节点。</li>
+              <li>一个事件只属于一个线程。</li>
+              <li>多个前置关系默认全部满足。</li>
+              <li>线程顺序不自动等于事件依赖。</li>
+              <li>工作日日历只作用于指定规则。</li>
+              <li>样本日期不会自动变成模板规则。</li>
+            </ul>
+          </section>
+        </aside>
+      </main>
+    </div>
+
+    <dialog class="modal" id="entityDialog">
+      <form method="dialog" id="entityForm">
+        <div class="modal-heading">
+          <div>
+            <span class="eyebrow" id="entityEyebrow">STRUCTURE</span>
+            <h2 id="entityDialogTitle">新增条线</h2>
+          </div>
+          <button class="icon-button" value="cancel" aria-label="关闭">×</button>
+        </div>
+        <input id="entityType" type="hidden" />
+        <input id="entityParentId" type="hidden" />
+        <label class="field">
+          <span id="entityNameLabel">条线名称</span>
+          <input id="entityNameInput" type="text" required autofocus />
+        </label>
+        <label class="field">
+          <span>说明</span>
+          <textarea id="entityDescriptionInput" rows="3"></textarea>
+        </label>
+        <div class="modal-actions">
+          <button class="button button-ghost" value="cancel" type="button" id="cancelEntityButton">取消</button>
+          <button class="button button-primary" value="default" type="submit">保存</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog class="modal" id="projectDialog">
+      <form method="dialog" id="projectForm">
+        <div class="modal-heading">
+          <div>
+            <span class="eyebrow">PROJECT SETTINGS</span>
+            <h2>项目设置</h2>
+          </div>
+          <button class="icon-button" value="cancel" aria-label="关闭">×</button>
+        </div>
+        <label class="field">
+          <span>项目名称</span>
+          <input id="projectNameInput" type="text" required />
+        </label>
+        <label class="field">
+          <span>项目说明</span>
+          <textarea id="projectDescriptionInput" rows="3"></textarea>
+        </label>
+        <div class="form-grid two-cols">
+          <label class="field">
+            <span>默认时区</span>
+            <select id="projectTimezoneInput">
+              <option value="Asia/Hong_Kong">香港</option>
+              <option value="Asia/Shanghai">中国内地</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>默认计算日历</span>
+            <select id="projectCalendarInput">
+              <option value="natural">自然日</option>
+              <option value="hk">香港工作日</option>
+              <option value="cn">中国内地工作日</option>
+              <option value="us">美国工作日</option>
+              <option value="project">项目自定义日历</option>
+            </select>
+          </label>
+        </div>
+        <label class="field">
+          <span>项目自定义日历名称</span>
+          <input id="projectCustomCalendarInput" type="text" placeholder="例如：中港联合工作日历" />
+        </label>
+        <div class="modal-actions">
+          <button class="button button-ghost" value="cancel" type="button" id="cancelProjectButton">取消</button>
+          <button class="button button-primary" value="default" type="submit">保存设置</button>
+        </div>
+      </form>
+    </dialog>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    <script src="app.js?v=1.8.0"></script>
+  </body>
+</html>
+

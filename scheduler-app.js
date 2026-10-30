@@ -1,6 +1,6 @@
 (() => {
   'use strict';
-  const E=window.IPOScheduler, KEY='ipo-scheduler-plans-v1', COLLECTOR='ipo-schedule-rule-collector-v1';
+  const E=window.IPOScheduler, KEY='ipo-scheduler-plans-v1', LIBRARY_KEY='ipo-scheduler-default-library-v1';
   const $=id=>document.getElementById(id), copy=x=>JSON.parse(JSON.stringify(x));
   const esc=x=>String(x??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const uid=()=>typeof crypto.randomUUID==='function'?crypto.randomUUID():Date.now()+'-'+Math.random().toString(36).slice(2);
@@ -8,6 +8,11 @@
   let db={version:1,currentId:null,plans:[]}, worker=null, workerURL=null, generation=0, selected=null, collapsed=new Set(), toastTimer;
   let readError='';
   try { const raw=localStorage.getItem(KEY);if(raw){const parsed=JSON.parse(raw);if(parsed.version!==1||!Array.isArray(parsed.plans))throw new Error('方案存储格式无法识别');db=parsed;} }catch(e){readError='无法读取已有方案，未覆盖原存储。请导出当前工作后检查浏览器存储：'+e.message;}
+  const reviewed=window.IPORuleRevision.revise(window.IPO_DRAFT_RULES,window.IPO_DRAFT_RULES).template;
+  const embedded=window.IPOProspectusRevision.revise(reviewed,reviewed);
+  let library={template:embedded.template,source:'内置最新事件库',agenda:embedded.agenda},libraryError='';
+  try{const raw=localStorage.getItem(LIBRARY_KEY);if(raw){const saved=JSON.parse(raw),errors=E.validateTemplate(saved.template);if(errors.length)throw new Error(errors.join('；'));library=saved;}}
+  catch(e){libraryError='本机事件库读取失败，原数据未覆盖：'+e.message;}
   function plan(){return db.plans.find(p=>p.id===db.currentId);}
   function toast(text){$('toast').textContent=text;$('toast').hidden=false;clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('toast').hidden=true,5000);}
   function status(text,kind=''){ $('status').textContent=text;$('status').className='status '+kind; }
@@ -17,7 +22,8 @@
     catch(e){$('saveState').textContent='本机保存失败：请立即导出方案备份。';toast('本机空间不足或存储不可用，当前修改仅在内存中，请导出方案。');}
   }
   function blank(){return{id:uid(),name:'未命名排程方案',template:null,source:'',fingerprint:'',settings:{anchorDates:{},locks:{},calendars:{},spreadWeeks:true,keepPrevious:true,preferWorkingDays:true,a1BusinessDaysOnly:true,timeBudgetMs:10000},result:null,pending:null,history:[],dirty:true};}
-  function newPlan(){stop();const p=blank();db.plans.push(p);db.currentId=p.id;selected=null;save();render();}
+  function applyLibrary(p){const t=library.template;p.template=copy(t);p.source=library.source;p.fingerprint=fingerprint(t);p.conferenceAgenda=copy(library.agenda||[]);p.settings.a1Id=t.events.find(e=>e.dateMode==='anchor_input'&&/A1/i.test(e.name))?.id||'';}
+  function newPlan(){if(libraryError){status(libraryError,'error');return;}stop();const p=blank();applyLibrary(p);db.plans.push(p);db.currentId=p.id;selected=null;save();render();}
   function currentResult(){return plan()?.pending||plan()?.result;}
   function mutate(){stop();const p=plan();p.pending=null;p.dirty=true;save();status(p.result?'设置已改变，下面仍是上次结果。请重新试排后确认新版本。':'设置已更新，请生成新的排程预览。','warning');renderPending();renderBoard();renderDetails();}
   function fingerprint(t){let h=2166136261;for(const c of JSON.stringify(t)){h^=c.charCodeAt(0);h=Math.imul(h,16777619);}return (h>>>0).toString(16).padStart(8,'0');}
@@ -49,7 +55,7 @@
     $('run').disabled=!t;$('earliestA1').disabled=!t||!p.settings.a1Id;
     $('conflicts').hidden=true;
     renderPending();renderBoard();renderHistory();renderDetails();
-    if(readError)status(readError,'error');else if(p.dirty&&p.result)status('设置与已确认版本不同，当前表格是旧版结果。请重新试排。','warning');else if(currentResult())showResultStatus(currentResult().run);
+    if(readError||libraryError)status(readError||libraryError,'error');else if(p.dirty&&p.result)status('设置与已确认版本不同，当前表格是旧版结果。请重新试排。','warning');else if(currentResult())showResultStatus(currentResult().run);
   }
   function showResultStatus(run){status(run.message+'\n'+(run.warnings||[]).join('\n'),run.warnings?.length?'warning':'success');}
   function renderPending(){
@@ -58,7 +64,7 @@
   }
   function renderBoard(){
     const p=plan(),r=currentResult(),t=p?.template,term=$('search').value.trim().toLowerCase();
-    if(!t||!r){$('summaryStats').innerHTML='';$('board').innerHTML=`<div class="empty"><div class="empty-icon">日</div><h3>${t?'规则已准备，等待项目日期':'从一份规则快照开始'}</h3><p>${t?'填写左侧锚点后，点击“生成 / 重新试排”。<br>所有时间安排将在独立方案中保存。':'载入现有事件规则，建立第一份项目方案。'}</p>${t?'':'<button data-load-draft class="primary">载入已补充的124个事件</button>'}</div>`;return;}
+    if(!t||!r){$('summaryStats').innerHTML='';$('board').innerHTML=`<div class="empty"><div class="empty-icon">日</div><h3>${t?'规则已准备，等待项目日期':'无法载入事件库'}</h3><p>${t?'填写左侧锚点后，点击“生成 / 重新试排”。<br>所有时间安排将在独立方案中保存。':'请检查事件库数据，或在测试管理入口导入规则。'}</p></div>`;return;}
     const dates=r.run.dates,all=t.events.filter(e=>dates[e.id]),filtered=all.filter(e=>!term||(e.code+' '+e.name).toLowerCase().includes(term));
     const days=all.map(e=>E.parseDate(dates[e.id])),min=Math.min(...days),max=Math.max(...days),weeks=[];
     for(let w=E.week(min);w<=E.week(max);w+=7)weeks.push(w);
@@ -153,25 +159,14 @@
     p.history.push({id:r.id,at:r.at,settings:copy(r.settings),run:{...copy(r.run),details:{}}});p.history=p.history.slice(-8);save();render();toast('已确认新版本，原规则库未改变');}
   function download(name,content,type='application/json'){const url=URL.createObjectURL(new Blob([content],{type})),a=document.createElement('a');a.href=url;a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);}
   async function fileJSON(input,fn){try{const f=input.files[0];if(f){if(f.size>15*1024*1024)throw new Error('文件超过15MB，请检查文件类型');await fn(JSON.parse(await f.text()),f.name);}}catch(e){status(e.message,'error');toast('未导入：'+e.message);}finally{input.value='';}}
-  $('loadDraft').onclick=() => loadRules(window.IPO_DRAFT_RULES,'规则补充初稿 · 2026-10-29');
-  $('emptyLoad').onclick=$('loadDraft').onclick;
-  $('reviseRules').onclick=()=>{try{
-    const source=plan();if(!source?.template)throw new Error('请先载入原规则或导入你的排程方案。');
-    const revision=window.IPORuleRevision.revise(source.template,window.IPO_DRAFT_RULES);
-    stop();const p=blank();p.name=source.name+' · 规则修订版';p.template=revision.template;p.settings=copy(source.settings);p.settings.replanMode='optimize';p.source='核心规则修订 '+revision.version;p.fingerprint=fingerprint(p.template);p.ruleChanges=revision.changes;
-    db.plans.push(p);db.currentId=p.id;selected=null;save();render();status(`已创建独立修订副本：${revision.changes.length}项关系调整，事件数量不变。锚点和人工锁定已保留；原方案及采集器未修改。请重新试排。`);
-  }catch(e){status(e.message,'warning');}};
-  $('exportRules').onclick=()=>{const p=plan();if(!p?.template){toast('请先载入规则');return;}download(p.name+'_事件规则.json',JSON.stringify(p.template,null,2));};
-  $('reviseProspectus').onclick=()=>{try{
-    const source=plan();if(!source?.template)throw new Error('请先导入核心修订版方案，或先创建核心规则修订副本。');
-    const reviewed=window.IPORuleRevision.revise(window.IPO_DRAFT_RULES,window.IPO_DRAFT_RULES).template;
-    const revision=window.IPOProspectusRevision.revise(source.template,reviewed);
-    stop();const p=blank();p.name=source.name+' · 大会修订版';p.template=revision.template;p.settings=copy(source.settings);p.settings.replanMode='optimize';delete p.settings.previousDates;delete p.settings.releaseAnchorId;
-    p.source='招股书大会规则修订 '+revision.version;p.fingerprint=fingerprint(p.template);p.ruleChanges=revision.changes;p.conferenceAgenda=revision.agenda;
-    db.plans.push(p);db.currentId=p.id;selected=null;collapsed.clear();save();render();status(`已创建独立大会修订副本：${revision.changes.length}项关系调整，124个事件不增减。锚点与人工锁定保留，原方案和采集器未修改。请重新试排。`);
-  }catch(e){status(e.message,'warning');}};
-  $('readCollector').onclick=()=>{try{const raw=localStorage.getItem(COLLECTOR);if(!raw)throw new Error('当前页面读不到采集器数据。请从采集器点击“项目排程”，或导入其导出的JSON。');loadRules(JSON.parse(raw),'采集器当前快照');}catch(e){status(e.message,'warning');}};
-  $('importRules').onchange=e=>fileJSON(e.target,(t,name)=>loadRules(t,name));
+  $('exportRules').onclick=()=>download('当前事件规则库.json',JSON.stringify(library.template,null,2));
+  $('importRules').onchange=e=>fileJSON(e.target,(t,name)=>{
+    const errors=E.validateTemplate(t);if(errors.length)throw new Error(errors.join('；'));
+    const same=['events','threads','lanes'].every(k=>JSON.stringify(t[k])===JSON.stringify(embedded.template[k]));
+    const next={template:copy(t),source:'本机导入事件库 · '+name,agenda:same?copy(embedded.agenda):[]};
+    try{localStorage.setItem(LIBRARY_KEY,JSON.stringify(next));}catch(err){throw new Error('无法保存事件库，原规则未更改：'+err.message);}
+    library=next;libraryError='';status('事件库已更新，仅影响此浏览器之后新建的方案；已有方案与采集器数据未改变。','success');toast('事件库已保存，新建方案时生效');
+  });
   $('newPlan').onclick=newPlan;
   $('copyPlan').onclick=()=>{stop();const p=copy(plan());p.id=uid();p.name+=' · 副本';p.pending=null;db.plans.push(p);db.currentId=p.id;save();render();};
   $('planSelect').onchange=e=>{stop();db.currentId=e.target.value;selected=null;save();render();};
@@ -184,7 +179,7 @@
   $('collapseAll').onclick=()=>{const t=plan()?.template;if(t)collapsed=new Set([...t.lanes,...t.threads].map(x=>x.id));renderBoard();};$('expandAll').onclick=()=>{collapsed.clear();renderBoard();};
   function jump(toA1){const p=plan(),r=currentResult();if(!r)return;const target=toA1?p.template.events.find(e=>e.id===p.settings.a1Id):p.template.events.find(e=>e.dateMode==='anchor_input'&&/启动/.test(e.name));if(!target){toast('未找到对应锚点');return;}$('viewMode').value='weeks';renderBoard();const first=Math.min(...Object.values(r.run.dates).map(d=>E.week(E.parseDate(d)))),offset=(E.week(E.parseDate(r.run.dates[target.id]))-first)/7;$('board').scrollLeft=offset*145;$('board').scrollTop=0;}
   $('jumpStart').onclick=()=>jump(false);$('jumpA1').onclick=()=>jump(true);
-  $('board').onclick=e=>{const event=e.target.closest('[data-event]'),collapse=e.target.closest('[data-collapse]');if(event){selected=event.dataset.event;renderDetails();}else if(collapse){const id=collapse.dataset.collapse;collapsed.has(id)?collapsed.delete(id):collapsed.add(id);renderBoard();}else if(e.target.closest('[data-load-draft]'))$('loadDraft').click();};
+  $('board').onclick=e=>{const event=e.target.closest('[data-event]'),collapse=e.target.closest('[data-collapse]');if(event){selected=event.dataset.event;renderDetails();}else if(collapse){const id=collapse.dataset.collapse;collapsed.has(id)?collapsed.delete(id):collapsed.add(id);renderBoard();}};
   $('closeInspector').onclick=()=>{selected=null;$('inspector').classList.remove('open');renderDetails();};
   $('eventDetails').onclick=e=>{if(!selected)return;const p=plan();if(e.target.id==='lockEvent'){const date=$('lockDate').value;if(!date){toast('请选择锁定日期');return;}p.settings.locks[selected]=date;mutate();toast('锁定已保存，重新试排后生效');}if(e.target.id==='unlockEvent'){delete p.settings.locks[selected];mutate();toast('已解除人工锁定，锚点日期仍按左侧输入');}};
   $('historyList').onclick=e=>{const b=e.target.closest('[data-restore]');if(!b)return;const p=plan(),h=p.history.find(x=>x.id===b.dataset.restore);if(!h)return;stop();const errors=E.verify(p.template,h.settings,h.run.dates);if(errors.length){status('历史版本复核失败：'+errors.join('；'),'error');return;}p.settings=copy(h.settings);p.result=copy(h);p.pending=null;p.dirty=false;save();render();toast('已恢复历史版本');};
@@ -199,10 +194,9 @@
   $('exportCSV').onclick=()=>{const p=plan(),r=currentResult();if(!r){toast('请先生成日期');return;}const quote=v=>'"'+String(v??'').replace(/^[=+\-@]/,"'$&").replace(/"/g,'""')+'"';const rows=[['条线','线程','事件编码','事件名称','推荐日期','周一起日','日期状态']];for(const e of p.template.events){const th=p.template.threads.find(x=>x.id===e.threadId),lane=p.template.lanes.find(x=>x.id===th.laneId);rows.push([lane.name,th.name,e.code,e.name,r.run.dates[e.id],E.iso(E.week(E.parseDate(r.run.dates[e.id]))),r.settings.locks?.[e.id]?'锁定':e.dateMode==='anchor_input'?'锚点':'推荐']);}download(p.name+'_日期表.csv','\ufeff'+rows.map(row=>row.map(quote).join(',')).join('\r\n'),'text/csv;charset=utf-8');};
   $('calendarSample').onclick=()=>download('日历格式示例_需自行填入真实节假日.json',JSON.stringify({note:'仅为格式示例，空列表不代表实际无假期。填入完整资料后再导入。',calendars:{hk:{version:'请填写日历来源与版本',from:'2026-01-01',to:'2027-12-31',holidays:[],workingDays:[]},cn:{version:'请填写日历来源与版本',from:'2026-01-01',to:'2027-12-31',holidays:[],workingDays:[]}}},null,2));
   $('importCalendar').onchange=e=>fileJSON(e.target,(data)=>{if(!data.calendars||typeof data.calendars!=='object'||Array.isArray(data.calendars))throw new Error('缺少calendars日历对象');for(const [name,c] of Object.entries(data.calendars)){if(!['hk','cn','us','project'].includes(name))throw new Error('不支持的日历名称：'+name);if(!c.version||c.version.includes('请填写')||!Array.isArray(c.holidays)||!Array.isArray(c.workingDays))throw new Error('请填写真实日历来源版本及节假日/补班日数组，不能直接导入格式示例');const from=E.parseDate(c.from),to=E.parseDate(c.to);if(from>to)throw new Error('日历覆盖范围不正确');for(const d of [...c.holidays,...c.workingDays]){const day=E.parseDate(d);if(day<from||day>to)throw new Error('假期或补班日期超出该日历覆盖范围');}}plan().settings.calendars={...plan().settings.calendars,...copy(data.calendars)};mutate();render();toast('已载入用户提供的日历，请重新试排');});
-  window.addEventListener('message',event=>{if(event.source!==window.opener)return;if(event.origin!==location.origin&&!(location.protocol==='file:'&&event.origin==='null'))return;if(event.data?.type==='ipo-scheduler-snapshot'){try{loadRules(event.data.template,'采集器传入快照');}catch(e){status('采集器快照无法载入：'+e.message,'error');}}});
-  if(!db.plans.length){db.plans.push(blank());db.currentId=db.plans[0].id;}
+  if(!db.plans.length){const p=blank();if(!libraryError)applyLibrary(p);db.plans.push(p);db.currentId=p.id;}
   if(!plan())db.currentId=db.plans[0].id;
+  if(!plan().template&&!libraryError)applyLibrary(plan());
   render();
   if(!readError && plan().template)$('saveState').textContent='已读取本机保存的方案';
-  if(window.opener)window.opener.postMessage({type:'ipo-scheduler-ready'},location.origin==='null'?'*':location.origin);
 })();
