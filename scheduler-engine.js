@@ -35,6 +35,7 @@
       const lagOK=v=>Number.isInteger(v)&&v>=0&&v<=3650;
       if (!lagOK(d.minLag) || (d.targetLag!=null&&!lagOK(d.targetLag)) || (d.maxLag!=null&&!lagOK(d.maxLag)) || (d.targetLag!=null&&d.targetLag<d.minLag) || (d.maxLag!=null&&(d.maxLag<d.minLag || d.targetLag!=null&&d.targetLag>d.maxLag))) errors.push('最短须为非负整数；目标、最长可留空，填写时须满足最短≤目标≤最长：' + e.code);
       if (!['calendar_day','business_day','calendar_month'].includes(d.unit) || !['hard','soft'].includes(d.strength)) errors.push('关系单位或强度无效：' + e.code);
+      if(d.targetWeight!=null&&(!Number.isInteger(d.targetWeight)||d.targetWeight<1||d.targetWeight>100))errors.push('目标权重须为1至100的整数：'+e.code);
       if (!['inherit','natural','hk','cn','us','project'].includes(d.calendar)) errors.push('日历标识无效：' + e.code);
       if (d.strength === 'hard' && adjacency.has(d.predecessorEventId)) adjacency.get(d.predecessorEventId).push(e.id);
     }
@@ -173,7 +174,7 @@
     for (const e of c.edges) {
       const [l,u]=bounds(c,e,dates[e.a]), b=dates[e.b];
       if(e.strength==='soft') soft+=Math.max(0,l-b,b-u);
-      if(e.targetLag!=null)target+=Math.abs(b-c.calendars.add(dates[e.a],e.targetLag,e.unit,e.calendar));
+      if(e.targetLag!=null)target+=(e.targetWeight||1)*Math.abs(b-c.calendars.add(dates[e.a],e.targetLag,e.unit,e.calendar));
     }
     c.events.forEach((e,i)=>{
       const prev=previous?.[e.id];if(prev && parseDate(prev)!==dates[i]){moved++;shift+=Math.abs(parseDate(prev)-dates[i]);}
@@ -422,10 +423,20 @@
     const left=budget-(Date.now()-started);
     if(left<500)return first;
     progress({stage:'正在从另一种周次安排起点交叉搜索'});
-    const second=solveSingle(template,{...settings,_searchStyle:'spread',timeBudgetMs:left},progress);
+    const rhythm=template.events.flatMap(e=>e.dependencies.filter(d=>d.targetWeight>=20&&d.unit==='calendar_day'&&d.targetLag!=null).map(d=>({a:d.predecessorEventId,b:e.id,n:d.targetLag})));
+    const second=solveSingle(template,{...settings,_searchStyle:'spread',timeBudgetMs:rhythm.length?Math.max(500,left-1800):left},progress);
     // Both searches are assessed under the identical public objective. A restart
     // is only a different search strategy, never a change to accepted constraints.
-    const chosen=second.status==='feasible'&&compare(second.score,first.score)<0?second:first;
+    let chosen=second.status==='feasible'&&compare(second.score,first.score)<0?second:first;
+    // Test an exact high-priority cadence as a candidate, not a persistent hard
+    // restriction. Recompute final diagnostics with the user's original locks.
+    if(rhythm.length&&budget-(Date.now()-started)>800){
+      const locks={...(settings.locks||{})},trialDates={...chosen.dates};let valid=true;
+      for(const e of rhythm){const wanted=iso(parseDate(trialDates[e.a])+e.n);if((locks[e.b]&&locks[e.b]!==wanted)||(settings.anchorDates?.[e.b]&&settings.anchorDates[e.b]!==wanted)){valid=false;break;}locks[e.b]=wanted;trialDates[e.b]=wanted;}
+      if(valid){const candidate=solveSingle(template,{...settings,locks,timeBudgetMs:Math.max(500,budget-(Date.now()-started)-600)},()=>{});
+        if(candidate.status==='feasible'&&compare(candidate.score,chosen.score)<0){const clean=solveSingle(template,{...settings,previousDates:candidate.dates,replanMode:'repair_only',timeBudgetMs:600},()=>{});if(clean.status==='feasible'){const cc=compile(template,settings),s=score(cc,cc.events.map(e=>parseDate(clean.dates[e.id])),settings.previousDates);clean.score=s;Object.assign(clean.metrics,{qualityCost:s[3],sameWeekPairs:s[4],targetDeviationDays:s[5],movedEvents:s[6],shiftDays:s[7]});if(compare(s,chosen.score)<0)chosen=clean;}}
+      }
+    }
     return{...chosen,elapsedMs:Date.now()-started,searchStarts:2,candidates:first.candidates+(second.candidates||0),jointMoves:first.jointMoves+(second.jointMoves||0)};
   }
   const api={VERSION,parseDate,iso,week,weekday,validateTemplate,createCalendars,compile,propagate,solve,verify};

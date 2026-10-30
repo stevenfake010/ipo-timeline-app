@@ -13,7 +13,7 @@
   const batch1=window.IPOFeedbackRevision.revise(prospectus.template);
   const agenda=copy(prospectus.agenda);agenda.find(x=>x.eventCode==='EVT-141').outputs.push('EVT-157');agenda.find(x=>x.eventCode==='EVT-142').inputs.push('EVT-157');
   const batch2=window.IPOBatch2Revision.revise(batch1);
-  const embedded={...prospectus,agenda,template:window.IPOProspectusGrouping.revise(batch2)};
+  const embedded=window.IPOMeetingCycle.revise(window.IPOProspectusGrouping.revise(batch2));
   let library={template:embedded.template,source:'内置最新事件库',agenda:embedded.agenda},libraryError='';
   try{const raw=localStorage.getItem(LIBRARY_KEY);if(raw){const saved=JSON.parse(raw),errors=E.validateTemplate(saved.template);if(errors.length)throw new Error(errors.join('；'));library=saved;}}
   catch(e){libraryError='本机事件库读取失败，原数据未覆盖：'+e.message;}
