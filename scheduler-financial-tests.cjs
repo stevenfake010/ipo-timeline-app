@@ -35,6 +35,7 @@ console.log('PASS 固定锚点必填、不能释放、日期顺序/同日、首�
 for(const [name,t,opts]of [
  ['complete-short',full,{a1:'2025-02-28',available:'2025-01-06'}],
  ['staged-medium',staged,{}],
+ ['staged-late-data',staged,{a1:'2025-06-26',available:'2025-05-12'}],
  ['complete-long',full,{a1:'2025-06-26',available:'2025-02-24'}]
 ]){
  const s=settings(t,opts),r=E.solve(t,s);assert.equal(r.status,'feasible',name+': '+JSON.stringify(r.errors||r.conflict));assert.deepEqual(E.verify(t,s,r.dates),[]);
@@ -43,6 +44,13 @@ for(const [name,t,opts]of [
  if(t===staged){assert(r.dates[m.get('EVT-040').id]<s.anchorDates[t.financialStrategy.fullAnchorId],'模型应能够先行开展');assert(r.dates[m.get('EVT-084').id]<s.anchorDates[t.financialStrategy.fullAnchorId],'首批走访应能够先开展');
   for(const c of ['EVT-036','EVT-165','EVT-167','EVT-168','EVT-085'])assert(r.dates[m.get(c).id]>=s.anchorDates[t.financialStrategy.fullAnchorId]);
   const broken={...r.dates,[m.get('EVT-042').id]:'2025-02-23'};assert(E.verify(t,s,broken).length);
+  const cal=E.createCalendars(s.calendars),data=E.parseDate(s.anchorDates[t.financialStrategy.fullAnchorId]);
+  for(const [code,min]of [['EVT-036',8],['EVT-030',8],['EVT-168',7],['EVT-085',7]])assert(E.parseDate(r.dates[m.get(code).id])>=cal.add(data,min,'business_day','hk'),code+'不能在数据到位当周草率收尾');
+  if(name==='staged-late-data'){
+    const codes=['EVT-027','EVT-164','EVT-165','EVT-030','EVT-036','EVT-042','EVT-043','EVT-044','EVT-166','EVT-167','EVT-168'];
+    const weeks=new Set(codes.map(c=>E.week(E.parseDate(r.dates[m.get(c).id]))));assert(weeks.size>=3,'宽松情况下完整数据更新应有多轮处理节奏');
+    console.log('PASS 晚到数据的更新链覆盖周次',weeks.size,Object.fromEntries(codes.map(c=>[c,r.dates[m.get(c).id]])));
+  }
  }
  console.log('PASS '+name,JSON.stringify({model:r.dates[m.get('EVT-040').id],fullData:s.anchorDates[t.financialStrategy.fullAnchorId],modelUpdate:r.dates[m.get('EVT-042').id],visit:r.dates[m.get('EVT-084').id],visitComplete:r.dates[m.get('EVT-085').id]}));
 }
@@ -54,3 +62,13 @@ const earliestSettings=settings(staged,{budget:1500}),earliest=E.solve(staged,{.
 assert.equal(earliest.status,'feasible');assert.deepEqual(E.verify(staged,{...earliestSettings,releaseAnchorId:earliestSettings.a1Id},earliest.dates),[]);
 for(const id of [staged.financialStrategy.firstAnchorId,staged.financialStrategy.fullAnchorId])assert.equal(earliest.dates[id],earliestSettings.anchorDates[id]);
 console.log('PASS 最早A1试算也保留两项财务锚点');
+const invalid=clone(staged);invalid.planningPolicy.anchorRelativeTargets[invalid.events[0].id]={anchorEventId:'missing',lag:3,unit:'business_day',calendar:'inherit'};assert(E.validateTemplate(invalid).length);
+// The preference follows the data date, not an absolute percentage of the project window.
+const toy={project:{defaultCalendar:'hk'},lanes:[{id:'l',name:'线'}],threads:[{id:'th',name:'线程',laneId:'l'}],events:[
+ {id:'start',code:'S',name:'启动',threadId:'th',dateMode:'anchor_input',dependencies:[]},
+ {id:'data',code:'D',name:'数据可用',threadId:'th',dateMode:'anchor_input',dependencies:[{id:'sd',predecessorEventId:'start',minLag:0,targetLag:null,maxLag:null,unit:'calendar_day',calendar:'inherit',strength:'hard'}]},
+ {id:'work',code:'W',name:'更新完成',threadId:'th',dateMode:'calculated',dependencies:[{id:'dw',predecessorEventId:'data',minLag:3,targetLag:5,maxLag:null,unit:'business_day',calendar:'inherit',strength:'hard'}]},
+ {id:'finish',code:'F',name:'结束',threadId:'th',dateMode:'anchor_input',dependencies:[{id:'wf',predecessorEventId:'work',minLag:0,targetLag:null,maxLag:null,unit:'calendar_day',calendar:'inherit',strength:'hard'}]}
+],planningPolicy:{version:1,startEventId:'start',finishEventId:'finish',meetingEventIds:[],progress:{work:.1},layoutWeight:3,ordinaryTargetWeight:.2,anchorRelativeTargets:{work:{anchorEventId:'data',lag:10,unit:'business_day',calendar:'hk'}}}};
+for(const date of ['2026-09-07','2026-09-14']){const s={anchorDates:{start:'2026-07-01',data:date,finish:'2026-12-31'},timeBudgetMs:500,horizonStart:'2026-07-01',horizonEnd:'2026-12-31'};const r=E.solve(toy,s);assert.equal(r.status,'feasible');assert.equal(r.dates.work,E.iso(E.createCalendars({}).add(E.parseDate(date),10,'business_day','hk')));assert.deepEqual(E.verify(toy,s,r.dates),[]);}
+console.log('PASS 更新节奏随数据锚点顺延，不被旧的全程百分比拉回最早日');

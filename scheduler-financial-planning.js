@@ -1,7 +1,7 @@
 /* Project-specific dependency compilation. Never rewrites the input library or saved plans. */
 (function(root){
   'use strict';
-  const VERSION='2026-11-02-finance-v1',copy=x=>JSON.parse(JSON.stringify(x));
+  const VERSION='2026-11-02-finance-v2',copy=x=>JSON.parse(JSON.stringify(x));
   function supported(t){return !!t&&t.ruleRevision==='2026-10-30-r8'&&!t.financialStrategy&&Array.isArray(t.events)&&!t.events.some(e=>/^EVT-16[2-8]$/.test(e.code)||/^finance-v1-/.test(e.id))&&['EVT-027','EVT-028','EVT-029','EVT-030','EVT-035','EVT-036','EVT-038','EVT-040','EVT-041','EVT-042','EVT-043','EVT-044','EVT-079','EVT-081','EVT-084','EVT-085','EVT-153'].every(c=>t.events.some(e=>e.code===c));}
   function create(input,mode='complete'){
     if(!['complete','staged'].includes(mode))throw Error('财务工作开展方式无效');
@@ -30,11 +30,12 @@
       get('EVT-081').name='确定首批第三方尽调范围及安排';
       get('EVT-036').name='传阅招股书财务章节更新稿（纳入完整报告期数据）';
       unlink('EVT-027','EVT-028');edge('EVT-163','EVT-028',0,3);
-      edge('EVT-027','EVT-164',0,3);edge('EVT-029','EVT-164');edge('EVT-164','EVT-165',2,5);
-      edge('EVT-165','EVT-030',2,5);edge('EVT-165','EVT-036',2,5);
+      edge('EVT-027','EVT-164',2,3);edge('EVT-029','EVT-164');edge('EVT-164','EVT-165',3,5);
+      edge('EVT-165','EVT-030',3,5);edge('EVT-165','EVT-036',3,5);
       edge('EVT-162','EVT-166',2,5);edge('EVT-079','EVT-166');
-      edge('EVT-166','EVT-167',1,3);edge('EVT-027','EVT-167');edge('EVT-081','EVT-167');
-      edge('EVT-167','EVT-168',2,5);edge('EVT-084','EVT-168');edge('EVT-168','EVT-085');
+      edge('EVT-166','EVT-167',2,3);edge('EVT-027','EVT-167');edge('EVT-081','EVT-167');
+      edge('EVT-167','EVT-168',3,7);edge('EVT-084','EVT-168');edge('EVT-168','EVT-085');
+      edge('EVT-042','EVT-043',3,5);edge('EVT-043','EVT-044',3,5);
     }
     // Preparatory requests and assumptions can start early. Substantive outputs require auditor data.
     edge(source,'EVT-040',3,5);edge(source,'EVT-081');
@@ -48,6 +49,14 @@
     if(t.planningPolicy){
       const p=t.planningPolicy.progress;
       if(mode==='staged')for(const [c,v]of Object.entries({'EVT-028':.15,'EVT-029':.23,'EVT-040':.3,'EVT-164':.65,'EVT-165':.72,'EVT-166':.62,'EVT-167':.7,'EVT-168':.85}))p[get(c).id]=v;
+      if(mode==='staged'){
+        // Late data makes absolute project-percentage targets fall in the past.
+        // Plan the update cycle relative to actual data availability instead.
+        // These are soft targets, NOT new fixed dates, deadlines or cross-thread serial edges.
+        const lags={'EVT-027':3,'EVT-164':6,'EVT-165':11,'EVT-030':16,'EVT-036':16,'EVT-042':5,'EVT-043':10,'EVT-044':16,'EVT-166':5,'EVT-167':8,'EVT-168':15,'EVT-085':15};
+        t.planningPolicy.anchorRelativeTargets={};
+        for(const [c,lag]of Object.entries(lags))t.planningPolicy.anchorRelativeTargets[get(c).id]={anchorEventId:full.id,lag,unit:'business_day',calendar:'inherit'};
+      }
     }
     return t;
   }

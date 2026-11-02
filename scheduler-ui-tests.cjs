@@ -126,6 +126,15 @@ test('旧方案切换财务模式创建副本，原规则/日期/日历不改',(
 });
 
 // ---------- 首屏体验：不等云端，也不覆盖已动过的方案 ----------
+test('旧财务策略显式升级为副本，同一模式也可更新，旧方案不变',()=>{
+  const F=require('./scheduler-financial-planning'),old=plan('v1','旧两阶段',true);
+  old.financialBaseTemplate=JSON.parse(JSON.stringify(seed));old.template=F.create(seed,'staged');old.template.financialStrategy.revision='2026-11-02-finance-v1';
+  old.settings.financialBaseDate='2023-12-31';const original=JSON.stringify(old),box=boot({version:1,currentId:'v1',plans:[old]});
+  assert.equal(box.els.refreshFinancial.hidden,false);box.els.refreshFinancial.onclick();const db=box.read();assert.equal(JSON.stringify(db.plans.find(p=>p.id==='v1')),original);
+  assert.equal(db.plans.length,2);assert.equal(db.plans.find(p=>p.id===db.currentId).template.financialStrategy.revision,F.VERSION);
+  assert.equal(box.els.refreshFinancial.hidden,true);
+});
+
 async function testAsync(name,fn){await fn();passed++;console.log('PASS',name);}
 const CAL={version:'测试日历',from:'2026-01-01',to:'2027-12-31',holidays:[],workingDays:[]};
 function cloudStub(version,tag){

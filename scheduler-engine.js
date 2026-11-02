@@ -1,7 +1,7 @@
 /* IPO scheduler, offline and dependency-free. Shared by Web Worker and Node tests. */
 (function engineFactory(root) {
   'use strict';
-  const VERSION = '0.13.0';
+  const VERSION = '0.13.1';
   const DAY = 86400000;
   function parseDate(s) {
     if (typeof s !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(s)) throw new Error('日期须为 YYYY-MM-DD');
@@ -43,6 +43,7 @@
     function visit(id) { if (active.has(id)) { errors.push('硬前置关系成环：' + (t.events.find(e => e.id === id)?.code || id)); return; } if (done.has(id)) return; active.add(id); for (const next of adjacency.get(id) || []) visit(next); active.delete(id); done.add(id); }
     for (const id of ids) visit(id);
     if(t.planningPolicy){const p=t.planningPolicy;if(p.version!==1||!ids.has(p.startEventId)||!ids.has(p.finishEventId)||!Array.isArray(p.meetingEventIds)||p.meetingEventIds.some(id=>!ids.has(id))||!p.progress||typeof p.progress!=='object'||Object.entries(p.progress).some(([id,v])=>!ids.has(id)||!Number.isFinite(v)||v<0||v>1)||p.cadencePositions&&(typeof p.cadencePositions!=='object'||Object.entries(p.cadencePositions).some(([id,v])=>!ids.has(id)||!Number.isFinite(v)||v< -1||v>5))||!Number.isFinite(p.layoutWeight)||p.layoutWeight<0||p.layoutWeight>20||!Number.isFinite(p.ordinaryTargetWeight)||p.ordinaryTargetWeight<0||p.ordinaryTargetWeight>1)errors.push('项目弹性布局设置无效');}
+    if(t.planningPolicy?.anchorRelativeTargets){const targets=t.planningPolicy.anchorRelativeTargets,by=new Map(t.events.map(e=>[e.id,e]));if(typeof targets!=='object'||Array.isArray(targets)||Object.entries(targets).some(([id,r])=>by.get(id)?.dateMode!=='calculated'||!r||by.get(r.anchorEventId)?.dateMode!=='anchor_input'||!Number.isInteger(r.lag)||r.lag<0||r.lag>3650||!['calendar_day','business_day','calendar_month'].includes(r.unit)||!['inherit','natural','hk','cn','us','project'].includes(r.calendar)))errors.push('数据锚点相对布局设置无效');}
     if(t.financialStrategy){const f=t.financialStrategy,by=new Map(t.events.map(e=>[e.id,e]));if(f.version!==1||!['complete','staged'].includes(f.mode)||by.get(f.fullAnchorId)?.dateMode!=='anchor_input'||(f.mode==='staged'&&(!f.firstAnchorId||f.firstAnchorId===f.fullAnchorId||by.get(f.firstAnchorId)?.dateMode!=='anchor_input'))||(f.mode==='complete'&&f.firstAnchorId!=null))errors.push('财务锚点策略结构无效');}
     return [...new Set(errors)];
   }
@@ -214,7 +215,7 @@
     const layout=layoutCost(c,dates);
     return [released,workdayPenalty,soft,c.settings._searchStyle==='spread'?collision:collision*14+target+layout+stability,c.settings._searchStyle==='spread'?target+layout:collision,target,moved,shift];
   }
-  function plannedDate(c,i,dates){const p=c.template.planningPolicy;if(!p||p.progress[c.events[i].id]==null)return null;const a=dates[c.index.get(p.startEventId)],b=dates[c.index.get(p.finishEventId)];if(b<=a)return null;const position=p.cadencePositions?.[c.events[i].id];if(position!=null)return Math.round(a+(b-a)*.82+(position-4)*Math.max(7,Math.min(21,(b-a)*.15)));return Math.round(a+(b-a)*p.progress[c.events[i].id]);}
+  function plannedDate(c,i,dates){const p=c.template.planningPolicy;if(!p)return null;const relative=p.anchorRelativeTargets?.[c.events[i].id];if(relative)return c.calendars.add(dates[c.index.get(relative.anchorEventId)],relative.lag,relative.unit,relative.calendar==='inherit'?c.template.project.defaultCalendar||'hk':relative.calendar);if(p.progress[c.events[i].id]==null)return null;const a=dates[c.index.get(p.startEventId)],b=dates[c.index.get(p.finishEventId)];if(b<=a)return null;const position=p.cadencePositions?.[c.events[i].id];if(position!=null)return Math.round(a+(b-a)*.82+(position-4)*Math.max(7,Math.min(21,(b-a)*.15)));return Math.round(a+(b-a)*p.progress[c.events[i].id]);}
   function layoutCost(c,dates){const p=c.template.planningPolicy;if(!p)return 0;let cost=0;for(let i=0;i<c.events.length;i++){if(c.events[i].dateMode==='anchor_input')continue;const wanted=plannedDate(c,i,dates);if(wanted!=null)cost+=Math.abs(dates[i]-wanted)*p.layoutWeight;}return cost;}
   function solveSingle(template, settings={}, progress=()=>{}) {
     const started=Date.now(), budget=Math.max(500,Math.min(settings.timeBudgetMs||5000,30000)), finishDeadline=started+budget, deadline=started+Math.floor(budget*.9);

@@ -35,9 +35,9 @@
     if(window.IPOFinancialPlanning?.supported(t)){p.financialBaseTemplate=copy(t);p.template=window.IPOFinancialPlanning.create(t,'complete');}
     p.fingerprint=fingerprint(p.template);
   }
-  function changeFinancialMode(mode){
+  function changeFinancialMode(mode,force=false){
     const old=plan(),F=window.IPOFinancialPlanning;if(!old?.template||!F)return;
-    if(old.template.financialStrategy?.mode===mode)return;
+    if(old.template.financialStrategy?.mode===mode&&!force)return;
     try{
       const base=old.financialBaseTemplate||old.template,next=F.create(base,mode);
       // Any existing snapshot is preserved by an explicit revision copy, including unsolved user edits.
@@ -75,6 +75,7 @@
     $('financialMode').value=financial?.mode||'legacy';$('financialMode').disabled=!(F&&(financial||F.supported(t)));
     $('financialInfo').textContent=financial?(financial.mode==='staged'?'先基于首批期间开展，完整数据出来后必须补充尽调、更新模型和章节并复核第三方覆盖。切换模式将创建修订副本。':'实质工作依赖完整报告期数据。需求清单与假设沟通可提前开展；切换模式将创建修订副本。'):'原方案快照保持不变。选择模式可创建财务锚点修订副本；不支持的自定义库请另行适配。';
     $('financialCoverageLabel').hidden=financial?.mode!=='staged';$('financialBaseDate').value=p.settings.financialBaseDate||'';
+    $('refreshFinancial').hidden=!financial||financial.revision===F?.VERSION||!p.financialBaseTemplate;
     $('anchorInputs').innerHTML=anchors.length?anchors.map(e=>`<label>${esc(e.name)}<input type="date" data-anchor="${esc(e.id)}" value="${esc(p.settings.anchorDates[e.id]||'')}"></label>`).join(''):'<p class="muted">载入规则后，填写项目日期。</p>';
     $('a1Select').innerHTML='<option value="">不指定</option>'+anchors.filter(e=>![financial?.fullAnchorId,financial?.firstAnchorId].includes(e.id)).map(e=>`<option value="${esc(e.id)}">${esc(e.name)}</option>`).join('');$('a1Select').value=p.settings.a1Id||'';
     $('a1BusinessDaysOnly').checked=true;$('spreadWeeks').checked=true;$('keepPrevious').checked=true;$('preferWorkingDays').checked=true;
@@ -209,6 +210,7 @@
   });
   $('newPlan').onclick=newPlan;
   $('financialMode').onchange=e=>changeFinancialMode(e.target.value);
+  $('refreshFinancial').onclick=()=>changeFinancialMode(plan().template.financialStrategy.mode,true);
   $('financialBaseDate').onchange=e=>{plan().settings.financialBaseDate=e.target.value;mutate();};
   $('copyPlan').onclick=()=>{stop();const p=copy(plan());p.id=uid();p.name+=' · 副本';p.pending=null;db.plans.push(p);db.currentId=p.id;save();render();};
   $('deletePlan').onclick=()=>{
