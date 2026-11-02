@@ -31,7 +31,24 @@
     catch(e){$('saveState').textContent='本机保存失败：请立即导出方案备份。';toast('本机空间不足或存储不可用，当前修改仅在内存中，请导出方案。');}
   }
   function blank(){return{id:uid(),name:'未命名排程方案',template:null,source:'',fingerprint:'',settings:{anchorDates:{},locks:{},calendars:copy(defaultCalendars),calendarRelease:copy(defaultRelease),spreadWeeks:true,keepPrevious:true,preferWorkingDays:true,a1BusinessDaysOnly:true,timeBudgetMs:10000},result:null,pending:null,history:[],dirty:true};}
-  function applyLibrary(p){const t=library.template;p.template=copy(t);p.source=library.source;p.ruleRelease=copy(library.release||null);p.fingerprint=fingerprint(t);p.conferenceAgenda=copy(library.agenda||[]);p.settings.a1Id=t.events.find(e=>e.dateMode==='anchor_input'&&/A1/i.test(e.name))?.id||'';}
+  function applyLibrary(p){const t=library.template;p.template=copy(t);p.source=library.source;p.ruleRelease=copy(library.release||null);p.conferenceAgenda=copy(library.agenda||[]);p.settings.a1Id=t.events.find(e=>e.dateMode==='anchor_input'&&/A1/i.test(e.name))?.id||'';
+    if(window.IPOFinancialPlanning?.supported(t)){p.financialBaseTemplate=copy(t);p.template=window.IPOFinancialPlanning.create(t,'complete');}
+    p.fingerprint=fingerprint(p.template);
+  }
+  function changeFinancialMode(mode){
+    const old=plan(),F=window.IPOFinancialPlanning;if(!old?.template||!F)return;
+    if(old.template.financialStrategy?.mode===mode)return;
+    try{
+      const base=old.financialBaseTemplate||old.template,next=F.create(base,mode);
+      // Any existing snapshot is preserved by an explicit revision copy, including unsolved user edits.
+      stop();const p=copy(old);p.id=uid();p.name+=' · '+(mode==='staged'?'分阶段':'完整数据')+'修订';
+      p.financialBaseTemplate=copy(base);p.template=next;p.fingerprint=fingerprint(next);
+      const ids=new Set(next.events.map(e=>e.id));
+      for(const key of ['anchorDates','locks'])p.settings[key]=Object.fromEntries(Object.entries(p.settings[key]||{}).filter(([id])=>ids.has(id)));
+      p.result=null;p.pending=null;p.history=[];p.dirty=true;
+      db.plans.push(p);db.currentId=p.id;selected=null;save();render();status('已创建财务策略修订副本。原方案未改动；请补齐固定数据可用日后重新试排。','warning');
+    }catch(e){render();status(e.message,'error');}
+  }
   async function newPlan(){if(libraryLoading){toast('正在读取已发布规则，请稍候');return;}if(libraryError){status(libraryError,'error');return;}if(window.IPOLibraryCloud&&window.IPO_CLOUD_CONFIG?.enabled)await refreshCloud();stop();const p=blank();applyLibrary(p);db.plans.push(p);db.currentId=p.id;selected=null;save();render();}
   function currentResult(){return plan()?.pending||plan()?.result;}
   function mutate(){stop();const p=plan();p.pending=null;p.dirty=true;save();status(p.result?'设置已改变，下面仍是上次结果。请重新试排后确认新版本。':'设置已更新，请生成新的排程预览。','warning');renderPending();renderBoard();renderDetails();}
@@ -52,10 +69,14 @@
     $('planName').value=p.name;
     const t=p.template;$('eventCount').textContent=t?t.events.length+' 个事件':'未载入';
     $('snapshotInfo').textContent=t?`${p.source==='内置最新事件库'?'内置事件库快照':p.source} · 快照 ${p.fingerprint} · ${t.threads.length} 个线程`:'独立复制规则，不改动采集器。';
-    $('ruleUpdateNote').textContent=t&&(p.ruleRelease?.id!==library.release?.id||p.fingerprint!==fingerprint(library.template))?'当前方案保留自己的规则快照。新建方案才使用当前默认规则；已有方案不会改变。':'';
+    $('ruleUpdateNote').textContent=t&&(p.ruleRelease?.id!==library.release?.id||fingerprint(p.financialBaseTemplate||t)!==fingerprint(library.template))?'当前方案保留自己的规则快照。新建方案才使用当前默认规则；已有方案不会改变。':'';
     const anchors=t?.events.filter(e=>e.dateMode==='anchor_input')||[];
+    const financial=t?.financialStrategy,F=window.IPOFinancialPlanning;
+    $('financialMode').value=financial?.mode||'legacy';$('financialMode').disabled=!(F&&(financial||F.supported(t)));
+    $('financialInfo').textContent=financial?(financial.mode==='staged'?'先基于首批期间开展，完整数据出来后必须补充尽调、更新模型和章节并复核第三方覆盖。切换模式将创建修订副本。':'实质工作依赖完整报告期数据。需求清单与假设沟通可提前开展；切换模式将创建修订副本。'):'原方案快照保持不变。选择模式可创建财务锚点修订副本；不支持的自定义库请另行适配。';
+    $('financialCoverageLabel').hidden=financial?.mode!=='staged';$('financialCoverage').value=p.settings.financialCoverage||'';
     $('anchorInputs').innerHTML=anchors.length?anchors.map(e=>`<label>${esc(e.name)}<input type="date" data-anchor="${esc(e.id)}" value="${esc(p.settings.anchorDates[e.id]||'')}"></label>`).join(''):'<p class="muted">载入规则后，填写项目日期。</p>';
-    $('a1Select').innerHTML='<option value="">不指定</option>'+anchors.map(e=>`<option value="${esc(e.id)}">${esc(e.name)}</option>`).join('');$('a1Select').value=p.settings.a1Id||'';
+    $('a1Select').innerHTML='<option value="">不指定</option>'+anchors.filter(e=>![financial?.fullAnchorId,financial?.firstAnchorId].includes(e.id)).map(e=>`<option value="${esc(e.id)}">${esc(e.name)}</option>`).join('');$('a1Select').value=p.settings.a1Id||'';
     $('a1BusinessDaysOnly').checked=true;$('spreadWeeks').checked=true;$('keepPrevious').checked=true;$('preferWorkingDays').checked=true;
     $('replanMode').value=p.settings.replanMode||'optimize';
     $('horizonStart').value=p.settings.horizonStart||'';$('horizonEnd').value=p.settings.horizonEnd||'';$('timeBudget').value=p.settings.timeBudgetMs||10000;
@@ -133,6 +154,9 @@
   function stop(){generation++;if(worker){worker.terminate();worker=null;URL.revokeObjectURL(workerURL);workerURL=null;$('cancel').disabled=true;$('run').disabled=!plan()?.template;}}
   function begin(release=false){
     const p=plan();if(!p?.template)return;
+    const missing=p.template.events.filter(e=>e.dateMode==='anchor_input'&&!(release&&e.id===p.settings.a1Id)&&!p.settings.anchorDates[e.id]);
+    if(missing.length){status('请填写固定锚点：'+missing.map(e=>e.name).join('、'),'error');return;}
+    if(p.template.financialStrategy?.mode==='staged'&&!p.settings.financialCoverage?.trim()){status('请填写首批财务数据覆盖期间','error');return;}
     p.settings.calendars=effectiveCalendars(p.settings.calendars);
     stop();p.pending=null;save();renderPending();renderBoard();$('conflicts').hidden=true;
     const settings=copy(p.settings);
@@ -184,6 +208,8 @@
     library=next;customLibrary=true;libraryError='';render();status('本机事件库已更新，仅影响此浏览器之后新建的方案，未发布到云端；已有方案与采集器数据未改变。','success');toast('本机事件库已保存，新建方案时生效');
   });
   $('newPlan').onclick=newPlan;
+  $('financialMode').onchange=e=>changeFinancialMode(e.target.value);
+  $('financialCoverage').oninput=e=>{plan().settings.financialCoverage=e.target.value;mutate();};
   $('copyPlan').onclick=()=>{stop();const p=copy(plan());p.id=uid();p.name+=' · 副本';p.pending=null;db.plans.push(p);db.currentId=p.id;save();render();};
   $('deletePlan').onclick=()=>{
     const p=plan();
@@ -233,7 +259,7 @@
   }
   function pristine(p){
     // 只有“刚建出来、一个字都没填”的方案才允许被云端快照静默替换。
-    return !!p&&!p.result&&!p.pending&&!(p.history&&p.history.length)
+    return !!p&&!p.result&&!p.pending&&!(p.history&&p.history.length)&&!p.settings.financialCoverage&&p.template?.financialStrategy?.mode!=='staged'
       &&!Object.keys(p.settings.anchorDates||{}).length&&!Object.keys(p.settings.locks||{}).length;
   }
   async function refreshCloud(options={}){
@@ -263,3 +289,4 @@
   start();
   if(window.IPOLibraryCloud)refreshCloud({quiet:true,upgradePristine:true});
 })();
+

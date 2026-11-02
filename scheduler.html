@@ -7,7 +7,7 @@
 </head>
 <body>
 <header class="topbar">
-  <div class="brand"><span class="brand-mark">JT</span><div><small>PROJECT TIMELINE</small><h1>IPO 项目排程器 <span>v0.12 云端规则版</span></h1></div></div>
+  <div class="brand"><span class="brand-mark">JT</span><div><small>PROJECT TIMELINE</small><h1>IPO 项目排程器 <span>v0.13 财务锚点版</span></h1></div></div>
   <nav><button id="exportPlan">导出方案</button><label class="button" for="importPlan">导入方案<input type="file" id="importPlan" accept=".json,application/json" hidden></label></nav>
 </header>
 <div class="workspace">
@@ -30,7 +30,12 @@
       <button id="exportCalendars" class="wide">导出当前默认日历</button>
       <p class="hint">这里的规则导入仅用于本机测试，不会发布到云端。正式发布暂通过 Supabase 管理控制台或受权管理工具操作；网页无云端写权限。</p></details>
     </section>
-    <section><h3>02 项目锚点</h3><div id="anchorInputs"><p class="muted">载入规则后，填写项目日期。</p></div>
+    <section><h3>02 项目锚点</h3>
+      <label>财务工作开展方式<select id="financialMode"><option value="legacy" disabled>原方案（未启用财务锚点）</option><option value="complete">完整数据模式</option><option value="staged">分阶段模式</option></select></label>
+      <p id="financialInfo" class="hint"></p>
+      <label id="financialCoverageLabel" hidden>首批财务数据覆盖期间<input id="financialCoverage" placeholder="例如：2022–2023年度；不含2024年度"></label>
+      <p class="hint">数据可用日由你固定输入，指审计师提供可供分析、建模和撰写的数据，不等于审计报告签署或定稿日。</p>
+      <div id="anchorInputs"><p class="muted">载入规则后，填写项目日期。</p></div>
       <label>A1锚点（用于备选试算）<select id="a1Select"><option value="">不指定</option></select></label>
       <label class="check" hidden><input type="checkbox" id="a1BusinessDaysOnly" checked>A1仅安排在项目工作日</label>
       <p class="hint">这是本方案的日期限制，不是法规核验。按项目日历判断工作日，未覆盖日期仅按周末处理并发出提示。</p>
@@ -68,7 +73,7 @@
   <aside id="inspector" class="inspector"><div class="heading"><h2>事件详情</h2><button id="closeInspector" aria-label="关闭详情">×</button></div><div id="eventDetails"><p class="muted">生成时间表后，点击任意事件查看日期依据、前后关系与人工锁定。</p></div></aside>
 </div>
 <div id="toast" class="toast" hidden role="status"></div>
-<script src="scheduler-engine.js?v=0.10.0"></script>
+<script src="scheduler-engine.js?v=0.13.0"></script>
 <script src="scheduler-draft.js?v=0.1.0"></script>
 <script src="scheduler-rule-revision.js?v=0.2.0"></script>
 <script src="scheduler-prospectus-revision.js?v=0.3.0"></script>
@@ -80,6 +85,8 @@
 <script src="scheduler-public-holidays.js?v=0.5.0"></script>
 <script src="cloud-config.js?v=0.11.0"></script>
 <script src="scheduler-cloud-library.js?v=0.11.0"></script>
-<script src="scheduler-app.js?v=0.12.0"></script>
+<script src="scheduler-financial-planning.js?v=0.13.0"></script>
+<script src="scheduler-app.js?v=0.13.0"></script>
 </body>
 </html>
+

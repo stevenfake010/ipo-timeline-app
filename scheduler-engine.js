@@ -1,7 +1,7 @@
 /* IPO scheduler, offline and dependency-free. Shared by Web Worker and Node tests. */
 (function engineFactory(root) {
   'use strict';
-  const VERSION = '0.10.0';
+  const VERSION = '0.13.0';
   const DAY = 86400000;
   function parseDate(s) {
     if (typeof s !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(s)) throw new Error('日期须为 YYYY-MM-DD');
@@ -43,7 +43,18 @@
     function visit(id) { if (active.has(id)) { errors.push('硬前置关系成环：' + (t.events.find(e => e.id === id)?.code || id)); return; } if (done.has(id)) return; active.add(id); for (const next of adjacency.get(id) || []) visit(next); active.delete(id); done.add(id); }
     for (const id of ids) visit(id);
     if(t.planningPolicy){const p=t.planningPolicy;if(p.version!==1||!ids.has(p.startEventId)||!ids.has(p.finishEventId)||!Array.isArray(p.meetingEventIds)||p.meetingEventIds.some(id=>!ids.has(id))||!p.progress||typeof p.progress!=='object'||Object.entries(p.progress).some(([id,v])=>!ids.has(id)||!Number.isFinite(v)||v<0||v>1)||p.cadencePositions&&(typeof p.cadencePositions!=='object'||Object.entries(p.cadencePositions).some(([id,v])=>!ids.has(id)||!Number.isFinite(v)||v< -1||v>5))||!Number.isFinite(p.layoutWeight)||p.layoutWeight<0||p.layoutWeight>20||!Number.isFinite(p.ordinaryTargetWeight)||p.ordinaryTargetWeight<0||p.ordinaryTargetWeight>1)errors.push('项目弹性布局设置无效');}
+    if(t.financialStrategy){const f=t.financialStrategy,by=new Map(t.events.map(e=>[e.id,e]));if(f.version!==1||!['complete','staged'].includes(f.mode)||by.get(f.fullAnchorId)?.dateMode!=='anchor_input'||(f.mode==='staged'&&(!f.firstAnchorId||f.firstAnchorId===f.fullAnchorId||by.get(f.firstAnchorId)?.dateMode!=='anchor_input'))||(f.mode==='complete'&&f.firstAnchorId!=null))errors.push('财务锚点策略结构无效');}
     return [...new Set(errors)];
+  }
+  function financialInputErrors(t,s){
+    const f=t.financialStrategy;if(!f)return[];
+    const issues=[],ids=[f.fullAnchorId,...(f.mode==='staged'?[f.firstAnchorId]:[])];
+    for(const id of ids){const e=t.events.find(e=>e.id===id);try{parseDate(s.anchorDates?.[id]);}catch(_){issues.push('请由用户填写固定锚点：'+(e?.name||id));}if(s.releaseAnchorId===id)issues.push('财务数据可用日不能由最早A1试算释放');}
+    if(f.mode==='staged'){
+      if(typeof s.financialCoverage!=='string'||!s.financialCoverage.trim())issues.push('请填写首批财务数据覆盖期间');
+      if(s.anchorDates?.[f.firstAnchorId]>s.anchorDates?.[f.fullAnchorId])issues.push('首批财务数据可用日不得晚于完整报告期财务数据可用日');
+    }
+    return issues;
   }
   function createCalendars(config = {}) {
     const cache = new Map();
@@ -71,6 +82,7 @@
   }
   function compile(template, settings = {}) {
     const errors = validateTemplate(template); if (errors.length) throw new Error(errors.join('\n'));
+    const financialErrors=financialInputErrors(template,settings);if(financialErrors.length)throw new Error(financialErrors.join('\n'));
     const events = template.events, index = new Map(events.map((e, i) => [e.id,i]));
     if (settings.releaseAnchorId && (!index.has(settings.releaseAnchorId) || events[index.get(settings.releaseAnchorId)].dateMode!=='anchor_input')) throw new Error('指定的A1锚点不是有效锚点事件');
     for(const key of ['anchorDates','locks'])for(const [id,date] of Object.entries(settings[key]||{}))if(date&&!index.has(id))throw new Error('固定日期引用了不存在的事件：'+id);
@@ -145,6 +157,8 @@
   }
   // Independent numerical validator (does not trust propagation/optimizer state).
   function verify(template, settings, dates) {
+    const financialErrors=financialInputErrors(template,settings);
+    if(financialErrors.length)return financialErrors;
     const problems = [], calendars = createCalendars(settings.calendars);
     for (const e of template.events) {
       let b; try { b = parseDate(dates[e.id]); } catch (_) { problems.push(e.code + '缺少有效日期'); continue; }
