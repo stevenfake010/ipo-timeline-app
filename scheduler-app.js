@@ -74,7 +74,7 @@
     const financial=t?.financialStrategy,F=window.IPOFinancialPlanning;
     $('financialMode').value=financial?.mode||'legacy';$('financialMode').disabled=!(F&&(financial||F.supported(t)));
     $('financialInfo').textContent=financial?(financial.mode==='staged'?'先基于首批期间开展，完整数据出来后必须补充尽调、更新模型和章节并复核第三方覆盖。切换模式将创建修订副本。':'实质工作依赖完整报告期数据。需求清单与假设沟通可提前开展；切换模式将创建修订副本。'):'原方案快照保持不变。选择模式可创建财务锚点修订副本；不支持的自定义库请另行适配。';
-    $('financialCoverageLabel').hidden=financial?.mode!=='staged';$('financialCoverage').value=p.settings.financialCoverage||'';
+    $('financialCoverageLabel').hidden=financial?.mode!=='staged';$('financialBaseDate').value=p.settings.financialBaseDate||'';
     $('anchorInputs').innerHTML=anchors.length?anchors.map(e=>`<label>${esc(e.name)}<input type="date" data-anchor="${esc(e.id)}" value="${esc(p.settings.anchorDates[e.id]||'')}"></label>`).join(''):'<p class="muted">载入规则后，填写项目日期。</p>';
     $('a1Select').innerHTML='<option value="">不指定</option>'+anchors.filter(e=>![financial?.fullAnchorId,financial?.firstAnchorId].includes(e.id)).map(e=>`<option value="${esc(e.id)}">${esc(e.name)}</option>`).join('');$('a1Select').value=p.settings.a1Id||'';
     $('a1BusinessDaysOnly').checked=true;$('spreadWeeks').checked=true;$('keepPrevious').checked=true;$('preferWorkingDays').checked=true;
@@ -156,7 +156,7 @@
     const p=plan();if(!p?.template)return;
     const missing=p.template.events.filter(e=>e.dateMode==='anchor_input'&&!(release&&e.id===p.settings.a1Id)&&!p.settings.anchorDates[e.id]);
     if(missing.length){status('请填写固定锚点：'+missing.map(e=>e.name).join('、'),'error');return;}
-    if(p.template.financialStrategy?.mode==='staged'&&!p.settings.financialCoverage?.trim()){status('请填写首批财务数据覆盖期间','error');return;}
+    if(p.template.financialStrategy?.mode==='staged'&&!p.settings.financialBaseDate){status('请填写首批财务数据基准日','error');return;}
     p.settings.calendars=effectiveCalendars(p.settings.calendars);
     stop();p.pending=null;save();renderPending();renderBoard();$('conflicts').hidden=true;
     const settings=copy(p.settings);
@@ -209,7 +209,7 @@
   });
   $('newPlan').onclick=newPlan;
   $('financialMode').onchange=e=>changeFinancialMode(e.target.value);
-  $('financialCoverage').oninput=e=>{plan().settings.financialCoverage=e.target.value;mutate();};
+  $('financialBaseDate').onchange=e=>{plan().settings.financialBaseDate=e.target.value;mutate();};
   $('copyPlan').onclick=()=>{stop();const p=copy(plan());p.id=uid();p.name+=' · 副本';p.pending=null;db.plans.push(p);db.currentId=p.id;save();render();};
   $('deletePlan').onclick=()=>{
     const p=plan();
@@ -259,7 +259,7 @@
   }
   function pristine(p){
     // 只有“刚建出来、一个字都没填”的方案才允许被云端快照静默替换。
-    return !!p&&!p.result&&!p.pending&&!(p.history&&p.history.length)&&!p.settings.financialCoverage&&p.template?.financialStrategy?.mode!=='staged'
+    return !!p&&!p.result&&!p.pending&&!(p.history&&p.history.length)&&!p.settings.financialBaseDate&&!p.settings.financialCoverage&&p.template?.financialStrategy?.mode!=='staged'
       &&!Object.keys(p.settings.anchorDates||{}).length&&!Object.keys(p.settings.locks||{}).length;
   }
   async function refreshCloud(options={}){

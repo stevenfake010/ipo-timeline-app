@@ -51,7 +51,13 @@
     const issues=[],ids=[f.fullAnchorId,...(f.mode==='staged'?[f.firstAnchorId]:[])];
     for(const id of ids){const e=t.events.find(e=>e.id===id);try{parseDate(s.anchorDates?.[id]);}catch(_){issues.push('请由用户填写固定锚点：'+(e?.name||id));}if(s.releaseAnchorId===id)issues.push('财务数据可用日不能由最早A1试算释放');}
     if(f.mode==='staged'){
-      if(typeof s.financialCoverage!=='string'||!s.financialCoverage.trim())issues.push('请填写首批财务数据覆盖期间');
+      let base;
+      try{base=parseDate(s.financialBaseDate);}catch(_){issues.push('请填写有效的首批财务数据基准日');}
+      if(base!=null){
+        try{if(base>parseDate(s.anchorDates?.[f.firstAnchorId]))issues.push('首批财务数据基准日不得晚于首批数据可用日');}catch(_){}
+        const reporting=t.events.find(e=>e.code==='EVT-153');
+        try{if(reporting&&base>parseDate(s.anchorDates?.[reporting.id]))issues.push('首批财务数据基准日不得晚于完整报告期申报基准日');}catch(_){}
+      }
       if(s.anchorDates?.[f.firstAnchorId]>s.anchorDates?.[f.fullAnchorId])issues.push('首批财务数据可用日不得晚于完整报告期财务数据可用日');
     }
     return issues;

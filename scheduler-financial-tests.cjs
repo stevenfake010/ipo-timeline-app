@@ -15,7 +15,7 @@ console.log('PASS 模式编译、原库不变、模型数据前置、补充尽�
 const colliding=clone(base);colliding.events.push({...clone(colliding.events[0]),code:'EVT-162',id:'custom-event'});assert(!F.supported(colliding));assert.throws(()=>F.create(colliding));
 function settings(t,{start='2024-10-21',a1='2025-04-10',end='2024-12-31',available='2025-02-24',first='2024-12-02',budget=2500}={}){
  const m=by(t),dates={'EVT-002':start,'EVT-003':a1,'EVT-153':end,'EVT-162':available};if(t.financialStrategy.mode==='staged')dates['EVT-163']=first;
- return{anchorDates:Object.fromEntries(Object.entries(dates).map(([c,d])=>[m.get(c).id,d])),locks:{},financialCoverage:'2022–2023年度',a1Id:m.get('EVT-003').id,calendars:require('./scheduler-public-holidays'),spreadWeeks:true,preferWorkingDays:true,a1BusinessDaysOnly:true,keepPrevious:false,timeBudgetMs:budget,horizonStart:start,horizonEnd:a1};
+ return{anchorDates:Object.fromEntries(Object.entries(dates).map(([c,d])=>[m.get(c).id,d])),locks:{},financialBaseDate:'2023-12-31',a1Id:m.get('EVT-003').id,calendars:require('./scheduler-public-holidays'),spreadWeeks:true,preferWorkingDays:true,a1BusinessDaysOnly:true,keepPrevious:false,timeBudgetMs:budget,horizonStart:start,horizonEnd:a1};
 }
 for(const t of [full,staged]){
  const s=settings(t),missing=clone(s);delete missing.anchorDates[t.financialStrategy.fullAnchorId];assert.equal(E.solve(t,missing).status,'invalid');
@@ -24,10 +24,14 @@ for(const t of [full,staged]){
  const bad=clone(t);bad.financialStrategy.fullAnchorId='missing';assert(E.validateTemplate(bad).length);
 }
 const inverted=settings(staged,{first:'2025-03-01'});assert.equal(E.solve(staged,inverted).status,'invalid');
-assert.equal(E.solve(staged,{...settings(staged),financialCoverage:''}).status,'invalid');
+assert.equal(E.solve(staged,{...settings(staged),financialBaseDate:''}).status,'invalid');
+assert.equal(E.solve(staged,{...settings(staged),financialBaseDate:'2024-02-30'}).status,'invalid');
+assert.equal(E.solve(staged,{...settings(staged),financialBaseDate:'2025-01-31'}).status,'invalid');
+assert.equal(E.solve(staged,{...settings(staged,{first:'2025-02-01'}),financialBaseDate:'2025-01-01'}).status,'invalid');
+assert.doesNotThrow(()=>E.compile(staged,{...settings(staged),financialBaseDate:'2024-12-02'}));
 assert.doesNotThrow(()=>E.compile(staged,settings(staged,{first:'2025-02-24'})));
 assert.equal(E.solve(full,settings(full,{available:'2024-12-20'})).status,'infeasible');
-console.log('PASS 固定锚点必填、不能释放、日期顺序/同日、报告期边界、覆盖期间必填');
+console.log('PASS 固定锚点必填、不能释放、日期顺序/同日、首批基准日及可用日边界');
 for(const [name,t,opts]of [
  ['complete-short',full,{a1:'2025-02-28',available:'2025-01-06'}],
  ['staged-medium',staged,{}],

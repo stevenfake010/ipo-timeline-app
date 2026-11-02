@@ -160,10 +160,10 @@ function cloudStub(version,tag){
     assert.equal(box.state['ipo-scheduler-plans-v1'],before,'动过的方案不应被云端替换');
   });
 
-  await testAsync('只填了首批覆盖期间、尚未填日期，也不能被云端覆盖',async()=>{
+  await testAsync('只填了首批基准日、尚未填可用日，也不能被云端覆盖',async()=>{
     const box=boot(undefined,cloudStub('cloud-v3','3'));
     box.els.financialMode.onchange({target:{value:'staged'}});
-    box.els.financialCoverage.oninput({target:{value:'2022–2023年度'}});
+    box.els.financialBaseDate.onchange({target:{value:'2023-12-31'}});
     const before=box.state['ipo-scheduler-plans-v1'];
     await new Promise(r=>setTimeout(r,120));
     assert.equal(box.state['ipo-scheduler-plans-v1'],before);
