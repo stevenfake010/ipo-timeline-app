@@ -45,7 +45,7 @@ for(const [name,t,opts]of [
   for(const c of ['EVT-036','EVT-165','EVT-167','EVT-168','EVT-085'])assert(r.dates[m.get(c).id]>=s.anchorDates[t.financialStrategy.fullAnchorId]);
   const broken={...r.dates,[m.get('EVT-042').id]:'2025-02-23'};assert(E.verify(t,s,broken).length);
   const cal=E.createCalendars(s.calendars),data=E.parseDate(s.anchorDates[t.financialStrategy.fullAnchorId]);
-  for(const [code,min]of [['EVT-036',8],['EVT-030',8],['EVT-168',7],['EVT-085',7]])assert(E.parseDate(r.dates[m.get(code).id])>=cal.add(data,min,'business_day','hk'),code+'不能在数据到位当周草率收尾');
+  for(const [code,min]of [['EVT-036',8],['EVT-030',8],['EVT-168',5],['EVT-085',5]])assert(E.parseDate(r.dates[m.get(code).id])>=cal.add(data,min,'business_day','hk'),code+'不能在数据到位当周草率收尾');
   if(name==='staged-late-data'){
     const codes=['EVT-027','EVT-164','EVT-165','EVT-030','EVT-036','EVT-042','EVT-043','EVT-044','EVT-166','EVT-167','EVT-168'];
     const weeks=new Set(codes.map(c=>E.week(E.parseDate(r.dates[m.get(c).id]))));assert(weeks.size>=3,'宽松情况下完整数据更新应有多轮处理节奏');

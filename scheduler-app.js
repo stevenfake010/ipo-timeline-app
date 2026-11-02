@@ -43,6 +43,7 @@
       // Any existing snapshot is preserved by an explicit revision copy, including unsolved user edits.
       stop();const p=copy(old);p.id=uid();p.name+=' · '+(mode==='staged'?'分阶段':'完整数据')+'修订';
       p.financialBaseTemplate=copy(base);p.template=next;p.fingerprint=fingerprint(next);
+      p.settings.calendars=historicalCalendars(p.settings.calendars,true);p.settings.calendarOverlayRevision='2026-11-02-history-v1';
       const ids=new Set(next.events.map(e=>e.id));
       for(const key of ['anchorDates','locks'])p.settings[key]=Object.fromEntries(Object.entries(p.settings[key]||{}).filter(([id])=>ids.has(id)));
       p.result=null;p.pending=null;p.history=[];p.dirty=true;
@@ -54,6 +55,18 @@
   function mutate(){stop();const p=plan();p.pending=null;p.dirty=true;save();status(p.result?'设置已改变，下面仍是上次结果。请重新试排后确认新版本。':'设置已更新，请生成新的排程预览。','warning');renderPending();renderBoard();renderDetails();}
   function fingerprint(t){let h=2166136261;for(const c of JSON.stringify(t)){h^=c.charCodeAt(0);h=Math.imul(h,16777619);}return (h>>>0).toString(16).padStart(8,'0');}
   function effectiveCalendars(saved){return{...copy(defaultCalendars),...copy(saved||{})};}
+  function historicalCalendars(input,onlyBuiltin=false){
+    const out=copy(input||{});
+    for(const [name,c]of Object.entries(out)){
+      const local=window.IPO_PUBLIC_HOLIDAYS[name];if(!local||!c.from||c.from<=local.from||onlyBuiltin&&c.builtin!==true)continue;
+      const oldFrom=c.from;
+      c.holidays=[...new Set([...c.holidays,...local.holidays.filter(d=>d>=local.from&&d<oldFrom)])].sort();
+      c.workingDays=[...new Set([...c.workingDays,...local.workingDays.filter(d=>d>=local.from&&d<oldFrom)])].sort();
+      c.from=local.from;c.version+='；'+local.from.slice(0,4)+'–'+String(Number(oldFrom.slice(0,4))-1)+'历史假期补充';
+      c.sources=[...new Set([...(c.sources||[]),c.source,...(local.sources||[]),local.source].filter(Boolean))];
+    }
+    return out;
+  }
   function loadRules(t,source){
     const errors=E.validateTemplate(t);if(errors.length)throw new Error(errors.join('\n'));
     stop();let p=plan();if(!p||p.template){p=blank();db.plans.push(p);db.currentId=p.id;}
@@ -89,7 +102,7 @@
     renderPending();renderBoard();renderHistory();renderDetails();
     if(readError||libraryError)status(readError||libraryError,'error');else if(p.dirty&&p.result)status('设置与已确认版本不同，当前表格是旧版结果。请重新试排。','warning');else if(currentResult())showResultStatus(currentResult().run);
   }
-  function showResultStatus(run){status(run.message+'\n'+(run.warnings||[]).join('\n'),run.warnings?.length?'warning':'success');}
+  function showResultStatus(run){const debt=run.debtAssessment;status(run.message+(debt?'\n债项准备'+debt.preparationWorkdays+'个项目工作日（最短8、目标10）；完成至A1缓冲'+debt.bufferWorkdays+'个工作日（目标5）。':'')+'\n'+(run.warnings||[]).join('\n'),run.warnings?.length?'warning':'success');}
   function renderPending(){
     const p=plan(),pending=p?.pending;$('pendingBar').hidden=!pending;
     if(pending){const changed=datesChanged(p.result?.run.dates,pending.run.dates);$('pendingTitle').textContent=pending.settings.releaseAnchorId?'最早A1备选 · 待确认':'新排程预览 · 待确认';$('pendingText').textContent=`${changed.length} 个事件${p.result?'日期变化':'获得推荐日期'}。确认前不会替换已保存版本。`+(pending.settings.releaseAnchorId?` A1：${pending.run.dates[pending.settings.releaseAnchorId]}。`:'');}
@@ -189,6 +202,7 @@
   function showFailure(r){
     status((r.errors||['未能生成结果']).join('\n'),r.status==='unknown'?'warning':'error');
     const p=plan(),ids=new Set(r.conflict?.ruleIds||[]),items=[];
+    if(p.template.debtPolicy&&[...ids].some(id=>id.startsWith('debt-')))items.push('债项内部基准日须早于启动且距A1不超过2个自然月；准备至少8个项目工作日，完成后招股书才可最终定稿。');
     const failed=p.template.events.find(e=>e.id===r.conflict?.eventId);
     for(const e of p.template.events){if(ids.has('date:'+e.id))items.push(`${e.code} ${e.name} 固定为 ${p.settings.locks[e.id]||p.settings.anchorDates[e.id]}`);for(const d of e.dependencies)if(ids.has(d.id)){const prev=p.template.events.find(x=>x.id===d.predecessorEventId);items.push(`${prev?.code} ${prev?.name} → ${e.code} ${e.name}：${d.minLag}–${d.maxLag??'不限'}${unitLabel(d.unit)}（${d.strength==='hard'?'硬条件':'软偏好'}）`);}}
     $('conflicts').hidden=false;$('conflicts').innerHTML=`<div class="conflict-box"><h3>${r.status==='infeasible'?'硬条件冲突（当前搜索范围内）':'需要检查输入或继续计算'}</h3><p>${failed?esc(failed.code+' '+failed.name)+'：':''}${esc(r.conflict?.message||'未生成新日期，原方案保持不变。')}</p>${items.length?'<ul>'+items.map(x=>'<li>'+esc(x)+'</li>').join('')+'</ul>':''}<p class="hint">这里是推导中涉及的条件集合，不保证是最小冲突集。可核对日期、扩大搜索范围，或试算释放A1的备选方案。软偏好不能修复硬条件矛盾。</p></div>`;
@@ -270,7 +284,7 @@
     try{
       let storage;try{storage=window.localStorage;}catch(e){/* Browser storage may be disabled. */}
       const result=await window.IPOLibraryCloud.load({config:window.IPO_CLOUD_CONFIG,engine:E,embedded:{rules:embedded.template,agenda:embedded.agenda,calendars:window.IPO_PUBLIC_HOLIDAYS},storage,fetcher:window.fetch.bind(window)});
-      defaultRelease=result.release;defaultCalendars=copy(result.data.calendars);
+      defaultRelease=result.release;defaultCalendars=historicalCalendars(result.data.calendars);
       defaultLibrary={template:result.data.rules,agenda:result.data.agenda,source:result.mode==='cloud'?'云端已发布事件库':result.mode==='cache'?'云端已发布缓存':'内置事件库兜底',release:copy(result.release)};
       if(!customLibrary&&!libraryError)library=copy(defaultLibrary);
       cloudInfo=(result.mode==='cloud'?'云端已连接':result.mode==='cache'?'正在使用本机发布缓存':'正在使用内置兜底')+(result.release?' · '+result.release.version:'')+(result.warning?'。'+result.warning:'。新建方案使用此版本，已有方案不变。');

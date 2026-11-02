@@ -23,6 +23,20 @@
   calendars.cn.workingDays.push('2028-01-22','2028-02-05','2028-04-08','2028-05-06','2028-09-30','2028-10-14');
   // Hong Kong 2028: calculation based on 2028 lunar table and usual substitutions.
   calendars.hk.holidays.push('2028-01-01','2028-01-26','2028-01-27','2028-01-28','2028-04-04','2028-04-14','2028-04-15','2028-04-17','2028-05-01','2028-05-02','2028-05-29','2028-07-01','2028-10-02','2028-10-04','2028-10-26','2028-12-25','2028-12-26');
-  for(const c of Object.values(calendars))c.builtin=true;
+  // Official historical calendars for case comparisons. Do not apply 2026 holidays to older years.
+  function range(a,b){const out=[];for(let d=Date.parse(a+'T00:00:00Z');d<=Date.parse(b+'T00:00:00Z');d+=86400000)out.push(new Date(d).toISOString().slice(0,10));return out;}
+  calendars.cn.holidays.push('2024-01-01',...range('2024-02-10','2024-02-17'),...range('2024-04-04','2024-04-06'),...range('2024-05-01','2024-05-05'),'2024-06-10',...range('2024-09-15','2024-09-17'),...range('2024-10-01','2024-10-07'),
+    '2025-01-01',...range('2025-01-28','2025-02-04'),...range('2025-04-04','2025-04-06'),...range('2025-05-01','2025-05-05'),...range('2025-05-31','2025-06-02'),...range('2025-10-01','2025-10-08'));
+  calendars.cn.workingDays.push('2024-02-04','2024-02-18','2024-04-07','2024-04-28','2024-05-11','2024-09-14','2024-09-29','2024-10-12','2025-01-26','2025-02-08','2025-04-27','2025-09-28','2025-10-11');
+  calendars.cn.sources=[calendars.cn.source,'https://app.www.gov.cn/govdata/gov/202310/25/508678/article.html','https://big5.www.gov.cn/gate/big5/www.gov.cn/zhengce/zhengceku/202411/content_6986383.htm'];
+  calendars.cn.version='内地2024–2026官方；2027–2028暂定（含假设补班）';
+  calendars.hk.holidays.push('2024-01-01','2024-02-10','2024-02-12','2024-02-13','2024-03-29','2024-03-30','2024-04-01','2024-04-04','2024-05-01','2024-05-15','2024-06-10','2024-07-01','2024-09-18','2024-10-01','2024-10-11','2024-12-25','2024-12-26',
+    '2025-01-01','2025-01-29','2025-01-30','2025-01-31','2025-04-04','2025-04-18','2025-04-19','2025-04-21','2025-05-01','2025-05-05','2025-05-31','2025-07-01','2025-10-01','2025-10-07','2025-10-29','2025-12-25','2025-12-26');
+  calendars.hk.sources=[calendars.hk.source,'https://www.info.gov.hk/gia/general/202305/25/P2023052500208p.htm','https://www.info.gov.hk/gia/general/202405/03/P2024043000417.htm'];
+  calendars.hk.version='香港2024–2027官方；2028暂定';
+  calendars.us.holidays.push('2024-01-01','2024-01-15','2024-02-19','2024-05-27','2024-06-19','2024-07-04','2024-09-02','2024-10-14','2024-11-11','2024-11-28','2024-12-25',
+    '2025-01-01','2025-01-20','2025-02-17','2025-05-26','2025-06-19','2025-07-04','2025-09-01','2025-10-13','2025-11-11','2025-11-27','2025-12-25');
+  calendars.us.version='美国OPM联邦假期（周一至周五观测日，2024–2028）';
+  for(const c of Object.values(calendars)){c.from='2024-01-01';c.holidays=[...new Set(c.holidays)].sort();c.workingDays=[...new Set(c.workingDays)].sort();c.builtin=true;}
   if(typeof module!=='undefined'&&module.exports)module.exports=calendars;else root.IPO_PUBLIC_HOLIDAYS=calendars;
 })(typeof globalThis!=='undefined'?globalThis:this);

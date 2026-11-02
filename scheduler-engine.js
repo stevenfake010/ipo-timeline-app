@@ -1,7 +1,7 @@
 /* IPO scheduler, offline and dependency-free. Shared by Web Worker and Node tests. */
 (function engineFactory(root) {
   'use strict';
-  const VERSION = '0.13.1';
+  const VERSION = '0.14.0';
   const DAY = 86400000;
   function parseDate(s) {
     if (typeof s !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(s)) throw new Error('日期须为 YYYY-MM-DD');
@@ -43,7 +43,9 @@
     function visit(id) { if (active.has(id)) { errors.push('硬前置关系成环：' + (t.events.find(e => e.id === id)?.code || id)); return; } if (done.has(id)) return; active.add(id); for (const next of adjacency.get(id) || []) visit(next); active.delete(id); done.add(id); }
     for (const id of ids) visit(id);
     if(t.planningPolicy){const p=t.planningPolicy;if(p.version!==1||!ids.has(p.startEventId)||!ids.has(p.finishEventId)||!Array.isArray(p.meetingEventIds)||p.meetingEventIds.some(id=>!ids.has(id))||!p.progress||typeof p.progress!=='object'||Object.entries(p.progress).some(([id,v])=>!ids.has(id)||!Number.isFinite(v)||v<0||v>1)||p.cadencePositions&&(typeof p.cadencePositions!=='object'||Object.entries(p.cadencePositions).some(([id,v])=>!ids.has(id)||!Number.isFinite(v)||v< -1||v>5))||!Number.isFinite(p.layoutWeight)||p.layoutWeight<0||p.layoutWeight>20||!Number.isFinite(p.ordinaryTargetWeight)||p.ordinaryTargetWeight<0||p.ordinaryTargetWeight>1)errors.push('项目弹性布局设置无效');}
-    if(t.planningPolicy?.anchorRelativeTargets){const targets=t.planningPolicy.anchorRelativeTargets,by=new Map(t.events.map(e=>[e.id,e]));if(typeof targets!=='object'||Array.isArray(targets)||Object.entries(targets).some(([id,r])=>by.get(id)?.dateMode!=='calculated'||!r||by.get(r.anchorEventId)?.dateMode!=='anchor_input'||!Number.isInteger(r.lag)||r.lag<0||r.lag>3650||!['calendar_day','business_day','calendar_month'].includes(r.unit)||!['inherit','natural','hk','cn','us','project'].includes(r.calendar)))errors.push('数据锚点相对布局设置无效');}
+    if(t.planningPolicy?.anchorRelativeTargets){const targets=t.planningPolicy.anchorRelativeTargets,by=new Map(t.events.map(e=>[e.id,e]));if(typeof targets!=='object'||Array.isArray(targets)||Object.entries(targets).some(([id,r])=>by.get(id)?.dateMode!=='calculated'||!r||by.get(r.anchorEventId)?.dateMode!=='anchor_input'||!Number.isInteger(r.lag)||r.lag< -3650||r.lag>3650||!['calendar_day','business_day','calendar_month'].includes(r.unit)||!['inherit','natural','hk','cn','us','project'].includes(r.calendar)))errors.push('数据锚点相对布局设置无效');}
+    if(t.planningPolicy?.eventLayoutWeights){const w=t.planningPolicy.eventLayoutWeights;if(typeof w!=='object'||Array.isArray(w)||Object.entries(w).some(([id,v])=>!ids.has(id)||!Number.isFinite(v)||v<0||v>20))errors.push('事件布局权重无效');}
+    if(t.debtPolicy){const p=t.debtPolicy,by=new Map(t.events.map(e=>[e.id,e]));if(p.version!==1||by.get(p.startEventId)?.dateMode!=='calculated'||by.get(p.completeEventId)?.dateMode!=='calculated'||by.get(p.finalizeEventId)?.dateMode!=='calculated'||new Set([p.startEventId,p.completeEventId,p.finalizeEventId,p.a1EventId]).size!==4||by.get(p.a1EventId)?.dateMode!=='anchor_input'||p.maxAgeMonths!==2||p.minPreparationDays!==8||p.targetPreparationDays!==10||p.bufferDays!==5||!['inherit','hk','cn','us','project'].includes(p.calendar))errors.push('债项排期策略无效');}
     if(t.financialStrategy){const f=t.financialStrategy,by=new Map(t.events.map(e=>[e.id,e]));if(f.version!==1||!['complete','staged'].includes(f.mode)||by.get(f.fullAnchorId)?.dateMode!=='anchor_input'||(f.mode==='staged'&&(!f.firstAnchorId||f.firstAnchorId===f.fullAnchorId||by.get(f.firstAnchorId)?.dateMode!=='anchor_input'))||(f.mode==='complete'&&f.firstAnchorId!=null))errors.push('财务锚点策略结构无效');}
     return [...new Set(errors)];
   }
@@ -81,8 +83,8 @@
       }
       if (unit === 'calendar_day' || n === 0 || name === 'natural') return d + n;
       const key = `${name}:${d}:${n}`; if (memo.has(key)) return memo.get(key);
-      const cal = get(name); let result = d, left = n;
-      while (left) { result++; if (cal.isWorking(result)) left--; if (result - d > 20000) throw new Error('日历有效工作日不足'); }
+      const cal = get(name); let result = d, left = Math.abs(n),step=Math.sign(n);
+      while (left) { result+=step; if (cal.isWorking(result)) left--; if (Math.abs(result - d) > 20000) throw new Error('日历有效工作日不足'); }
       memo.set(key, result); return result;
     }
     return {get, add};
@@ -113,6 +115,7 @@
       const calendar = dep.calendar === 'inherit' ? template.project.defaultCalendar || 'hk' : dep.calendar;
       edges.push({ ...dep, a: index.get(dep.predecessorEventId), b: index.get(e.id), calendar });
     }
+    if(template.debtPolicy){const p=template.debtPolicy,name=p.calendar==='inherit'?template.project.defaultCalendar||'hk':p.calendar;edges.push({id:'debt-reference-two-calendar-months',a:index.get(p.startEventId),b:index.get(p.a1EventId),minLag:0,maxLag:2,targetLag:null,unit:'calendar_month',calendar:'natural',strength:'hard',debtWindow:true});for(const [id,a,b,minLag,unit]of [['debt-min-preparation',p.startEventId,p.completeEventId,8,'business_day'],['debt-before-a1',p.completeEventId,p.a1EventId,0,'business_day'],['debt-before-prospectus-final',p.completeEventId,p.finalizeEventId,0,'business_day'],['prospectus-final-before-a1',p.finalizeEventId,p.a1EventId,0,'business_day']])edges.push({id,a:index.get(a),b:index.get(b),minLag,maxLag:null,targetLag:null,unit,calendar:name,strength:'hard'});}
     const hard = edges.filter(e => e.strength === 'hard'), soft = edges.filter(e => e.strength === 'soft');
     const relevant = new Set(edges.filter(e => e.unit === 'business_day').map(e => e.calendar));
     relevant.add(template.project.defaultCalendar || 'hk');
@@ -137,7 +140,7 @@
     const domains = events.map((e,i) => (fixed.has(i) ? (prohibited.has(fixed.get(i)) ? [] : [fixed.get(i)]) : allDates.slice()).filter(d=>!settings.a1BusinessDaysOnly || e.id!==a1Id || projectCalendar.isWorking(d)));
     return {events,index,calendars,fixed,edges,hard,soft,domains,start,end,warnings,settings,template};
   }
-  function bounds(c,e,day) { return [c.calendars.add(day,e.minLag,e.unit,e.calendar),e.maxLag==null?Infinity:c.calendars.add(day,e.maxLag,e.unit,e.calendar)]; }
+  function bounds(c,e,day) { if(e.debtWindow)return[day+1,c.calendars.add(day-1,2,'calendar_month','natural')];return [c.calendars.add(day,e.minLag,e.unit,e.calendar),e.maxLag==null?Infinity:c.calendars.add(day,e.maxLag,e.unit,e.calendar)]; }
   function propagate(c, input, deadline) {
     const ds = input.map(d => d.slice());
     const causes = c.events.map((_,i) => new Set(c.fixed.has(i) ? ['date:' + c.events[i].id] : []));
@@ -183,7 +186,28 @@
         if (b < l || b > u) problems.push(`${e.code}违反关系 ${d.id}：允许${iso(l)}至${Number.isFinite(u)?iso(u):'不限'}，实际${iso(b)}`);
       }
     }
+    if(template.debtPolicy)problems.push(...assessDebt(template,settings,dates).issues);
     return problems;
+  }
+  function assessDebt(t,s,dates){
+    const p=t.debtPolicy;if(!p)return null;
+    let start,end,a1,final;
+    try{start=parseDate(dates[p.startEventId]);end=parseDate(dates[p.completeEventId]);a1=parseDate(dates[p.a1EventId]);final=parseDate(dates[p.finalizeEventId]);}catch(_){return{issues:['债项工作日期不完整']};}
+    const issues=[],name=p.calendar==='inherit'?t.project.defaultCalendar||'hk':p.calendar,cal=createCalendars(s.calendars).get(name);
+    const months=(d,n)=>{const x=new Date(d*DAY),day=x.getUTCDate();x.setUTCDate(1);x.setUTCMonth(x.getUTCMonth()+n);const last=new Date(x);last.setUTCMonth(last.getUTCMonth()+1,0);x.setUTCDate(Math.min(day,last.getUTCDate()));return x.getTime()/DAY;};
+    let preparation=0,buffer=0;
+    if(end<start||a1<end)issues.push('债项准备、完成与A1的日期顺序不正确');
+    for(let d=start+1;d<=end;d++)if(cal.isWorking(d))preparation++;
+    for(let d=end+1;d<=a1;d++)if(cal.isWorking(d))buffer++;
+    if(preparation<8)issues.push('债项准备不足8个项目工作日');
+    if(final<end)issues.push('债项未完成，招股书不能最终定稿');
+    if(final>a1)issues.push('招股书最终定稿晚于A1');
+    // Prove a valid INTERNAL reference date exists, independently of compiled edge bounds.
+    const candidates=[];for(let d=Math.max(a1-100,start-100);d<start&&d<a1;d++)if(months(d,2)>=a1)candidates.push(d);
+    if(!candidates.length)issues.push('找不到早于债项启动且距离A1不超过2个自然月的债项基准日');
+    // The user did not require month-end. Keep only the latest feasible internal witness.
+    const reference=candidates.at(-1);
+    return{issues,referenceDate:reference==null?null:iso(reference),preparationWorkdays:preparation,targetPreparationWorkdays:10,bufferWorkdays:buffer,targetBufferWorkdays:5,bufferTargetMet:buffer>=5};
   }
   function groups(c) {
     const parent=c.events.map((_,i)=>i); const find=i=>parent[i]===i?i:parent[i]=find(parent[i]);
@@ -216,7 +240,7 @@
     return [released,workdayPenalty,soft,c.settings._searchStyle==='spread'?collision:collision*14+target+layout+stability,c.settings._searchStyle==='spread'?target+layout:collision,target,moved,shift];
   }
   function plannedDate(c,i,dates){const p=c.template.planningPolicy;if(!p)return null;const relative=p.anchorRelativeTargets?.[c.events[i].id];if(relative)return c.calendars.add(dates[c.index.get(relative.anchorEventId)],relative.lag,relative.unit,relative.calendar==='inherit'?c.template.project.defaultCalendar||'hk':relative.calendar);if(p.progress[c.events[i].id]==null)return null;const a=dates[c.index.get(p.startEventId)],b=dates[c.index.get(p.finishEventId)];if(b<=a)return null;const position=p.cadencePositions?.[c.events[i].id];if(position!=null)return Math.round(a+(b-a)*.82+(position-4)*Math.max(7,Math.min(21,(b-a)*.15)));return Math.round(a+(b-a)*p.progress[c.events[i].id]);}
-  function layoutCost(c,dates){const p=c.template.planningPolicy;if(!p)return 0;let cost=0;for(let i=0;i<c.events.length;i++){if(c.events[i].dateMode==='anchor_input')continue;const wanted=plannedDate(c,i,dates);if(wanted!=null)cost+=Math.abs(dates[i]-wanted)*p.layoutWeight;}return cost;}
+  function layoutCost(c,dates){const p=c.template.planningPolicy;if(!p)return 0;let cost=0;for(let i=0;i<c.events.length;i++){if(c.events[i].dateMode==='anchor_input')continue;const wanted=plannedDate(c,i,dates);if(wanted!=null)cost+=Math.abs(dates[i]-wanted)*(p.eventLayoutWeights?.[c.events[i].id]??p.layoutWeight);}return cost;}
   function solveSingle(template, settings={}, progress=()=>{}) {
     const started=Date.now(), budget=Math.max(500,Math.min(settings.timeBudgetMs||5000,30000)), finishDeadline=started+budget, deadline=started+Math.floor(budget*.9);
     let c; try { c=compile(template,settings); } catch(e) { return {status:'invalid',errors:e.message.split('\n')}; }
@@ -438,7 +462,8 @@
         windows:[i,j].map(k=>({eventId:c.events[k].id,start:iso(hardDomains[k][0]),end:iso(hardDomains[k].at(-1))}))};
     });
     const canonicalScore=score({...c,settings:{...settings,_searchStyle:undefined}},best,settings.previousDates);
-    return {status:'feasible',version:VERSION,dates,details,score:canonicalScore,scoreVersion:2,metrics:{nonWorkingEvents:canonicalScore[1],softViolationDays:canonicalScore[2],qualityCost:canonicalScore[3],sameWeekPairs:canonicalScore[4],targetDeviationDays:canonicalScore[5],movedEvents:canonicalScore[6],shiftDays:canonicalScore[7]},weekCollisions,verified:true,optimal:false,candidates,coordinatedMoves,jointMoves,beforeCoordinatedScore:beforeCoordinated,elapsedMs:Date.now()-started,
+    const debtAssessment=assessDebt(template,settings,dates);if(debtAssessment&&!debtAssessment.bufferTargetMet)c.warnings.push('债项完成至A1仅有'+debtAssessment.bufferWorkdays+'个项目工作日，少于目标5个；硬条件通过，但缓冲偏紧。');
+    return {status:'feasible',version:VERSION,dates,details,debtAssessment,score:canonicalScore,scoreVersion:2,metrics:{nonWorkingEvents:canonicalScore[1],softViolationDays:canonicalScore[2],qualityCost:canonicalScore[3],sameWeekPairs:canonicalScore[4],targetDeviationDays:canonicalScore[5],movedEvents:canonicalScore[6],shiftDays:canonicalScore[7]},weekCollisions,verified:true,optimal:false,candidates,coordinatedMoves,jointMoves,beforeCoordinatedScore:beforeCoordinated,elapsedMs:Date.now()-started,
       earliestA1Proven:minimumReleased!==null && best[c.index.get(settings.releaseAnchorId)]===minimumReleased,
       warnings:c.warnings,horizon:{start:iso(c.start),end:iso(c.end)},message:'硬条件全部通过独立复核；优先工作日，综合权衡错周、目标间隔及改期成本。未证明全局最优。'};
   }
@@ -475,13 +500,15 @@
     const meetings=p.meetingEventIds;
     // Compare cadence alternatives under one objective. Temporary candidate
     // locks never replace user locks or survive in the accepted diagnostics.
-    for(const gap of [14,21,7]){
+    const patterns=[[14,14,14,14],[21,21,14,14],[21,21,21,21],[14,21,14,7],[7,7,7,7],[21,14,21,14]];
+    for(const gaps of patterns){
       const left=deadline-Date.now();if(left<900)break;
       const a=parseDate(best.dates[p.startEventId]),b=parseDate(best.dates[p.finishEventId]);
-      let last=Math.round(a+(b-a)*p.progress[meetings.at(-1)]);
+      if(!meetings.length)break;
+      let last=Math.max(Math.round(a+(b-a)*p.progress[meetings.at(-1)]),parseDate(best.dates[meetings.at(-1)]));
       const cal=c.calendars.get(template.project.defaultCalendar||'hk');while(settings.preferWorkingDays!==false&&!cal.isWorking(last))last--;
       const locks={...(settings.locks||{})};let valid=true;
-      for(let i=0;i<meetings.length;i++){const id=meetings[i],date=iso(last-(meetings.length-1-i)*gap);if((locks[id]&&locks[id]!==date)||(settings.anchorDates?.[id]&&settings.anchorDates[id]!==date)){valid=false;break;}locks[id]=date;}
+      for(let i=0;i<meetings.length;i++){const id=meetings[i],date=iso(last-gaps.slice(i,meetings.length-1).reduce((n,x)=>n+x,0));if((locks[id]&&locks[id]!==date)||(settings.anchorDates?.[id]&&settings.anchorDates[id]!==date)){valid=false;break;}locks[id]=date;}
       if(!valid)continue;
       const r=solveSingle(template,{...settings,locks,timeBudgetMs:Math.max(500,Math.min(1200,Math.floor((left-650)/3)))},()=>{});attempts++;
       if(r.status==='feasible'&&!verify(template,settings,r.dates).length){r.score=assess(r);if(compare(r.score,best.score)<0){best=r;proposal=true;}}
@@ -490,10 +517,10 @@
     if(left>850){const r=solveSingle(template,{...settings,_searchStyle:'spread',timeBudgetMs:left-650},progress);attempts++;if(r.status==='feasible'&&compare(r.score,best.score)<0){best=r;proposal=false;}}
     if(proposal){const clean=solveSingle(template,{...settings,previousDates:best.dates,replanMode:'repair_only',timeBudgetMs:650},()=>{});if(clean.status==='feasible')best=clean;else return{status:'unknown',errors:['候选方案诊断复核未完成，请增加计算预算。']};}
     const s=assess(best);best.score=s;Object.assign(best.metrics,{qualityCost:s[3],sameWeekPairs:s[4],targetDeviationDays:s[5],movedEvents:s[6],shiftDays:s[7],layoutDeviationCost:layoutCost(c,c.events.map(e=>parseDate(best.dates[e.id])))});
-    best.message='硬条件全部通过独立复核；按项目窗口安排阶段，偏好两周会议节奏，并比较一周/三周候选。未证明全局最优。';
+    best.message='硬条件全部通过独立复核；优先实际业务间隔和材料就绪，偏好两周会议节奏，并比较混合间隔候选。未证明全局最优。';
     return{...best,elapsedMs:Date.now()-started,searchStarts:attempts};
   }
-  const api={VERSION,parseDate,iso,week,weekday,validateTemplate,createCalendars,compile,propagate,solve,verify};
+  const api={VERSION,parseDate,iso,week,weekday,validateTemplate,createCalendars,compile,propagate,solve,verify,assessDebt};
   api.workerSource='('+engineFactory.toString()+')(self); self.onmessage=function(event){ try { const p=event.data; const result=IPOScheduler.solve(p.template,p.settings,progress=>self.postMessage({progress})); self.postMessage({result}); } catch(error) { self.postMessage({result:{status:"invalid",errors:[error.message]}}); }};';
   if(typeof module!=='undefined' && module.exports)module.exports=api;else root.IPOScheduler=api;
 })(typeof globalThis!=='undefined'?globalThis:this);
