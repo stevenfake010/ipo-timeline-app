@@ -1,4 +1,4 @@
-// UI 层回归测试：在虚拟 DOM 中运行 scheduler-app.js，验证方案删除与界面收敛。
+// UI 层回归测试：方案删除、界面收敛、财务模式与数据保护。
 // 与 scheduler-cloud-tests.cjs 同一套做法：无第三方依赖，纯 node 直接运行。
 const assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm');
 const E=require('./scheduler-engine');
@@ -50,7 +50,7 @@ function boot(db,cloud){
   const state={};
   if(db!==undefined)state['ipo-scheduler-plans-v1']=JSON.stringify(db);
   const storage={getItem:k=>state[k]??null,setItem:(k,v)=>{state[k]=v;},removeItem:k=>{delete state[k];}};
-  const window={IPOScheduler:E,IPO_CLOUD_CONFIG:{enabled:!!cloud},confirm:()=>true,localStorage:storage,
+  const window={IPOScheduler:E,IPOFinancialPlanning:require('./scheduler-financial-planning'),IPO_CLOUD_CONFIG:{enabled:!!cloud},confirm:()=>true,localStorage:storage,
     fetch:async()=>{throw new Error('测试环境不联网');}};
   if(cloud)window.IPOLibraryCloud=cloud;
   for(const [name,file] of [['IPORuleRevision','scheduler-rule-revision'],['IPOProspectusRevision','scheduler-prospectus-revision'],
@@ -110,7 +110,31 @@ test('没有当前方案时点击删除只提示、不抛错',()=>{
   assert.equal(box.read().plans.length,1,'不应误删方案');
 });
 
+test('旧方案切换财务模式创建副本，原规则/日期/日历不改',()=>{
+  const old=plan('old','旧方案',true);old.settings.anchorDates[seed.events.find(e=>e.code==='EVT-002').id]='2024-10-21';
+  old.settings.calendars.hk={version:'用户日历'};old.settings.preferWorkingDays=false;
+  const original=JSON.stringify(old),box=boot({version:1,currentId:'old',plans:[old]});
+  box.els.financialMode.onchange({target:{value:'staged'}});
+  let db=box.read(),p=db.plans.find(p=>p.id===db.currentId);
+  assert.equal(JSON.stringify(db.plans.find(p=>p.id==='old')),original);assert.equal(db.plans.length,2);
+  assert.equal(p.template.events.length,136);assert.equal(p.template.financialStrategy.mode,'staged');assert.equal(p.result,null);assert.equal(p.history.length,0);
+  assert.deepEqual(p.settings.anchorDates,old.settings.anchorDates);assert.deepEqual(p.settings.calendars,old.settings.calendars);assert.equal(p.settings.preferWorkingDays,false);
+  box.els.run.onclick();assert.match(box.els.status.textContent,/请填写固定锚点/);
+  const stagedId=p.id;box.els.financialMode.onchange({target:{value:'complete'}});db=box.read();p=db.plans.find(p=>p.id===db.currentId);
+  assert.equal(p.template.events.length,130);assert(db.plans.find(p=>p.id===stagedId));
+  assert(!p.template.events.some(e=>e.code==='EVT-163'));assert(!JSON.stringify(p.template).includes('finance-v1-EVT-168'));
+});
+
 // ---------- 首屏体验：不等云端，也不覆盖已动过的方案 ----------
+test('旧财务策略显式升级为副本，同一模式也可更新，旧方案不变',()=>{
+  const F=require('./scheduler-financial-planning'),old=plan('v1','旧两阶段',true);
+  old.financialBaseTemplate=JSON.parse(JSON.stringify(seed));old.template=F.create(seed,'staged');old.template.financialStrategy.revision='2026-11-02-finance-v1';
+  old.settings.financialBaseDate='2023-12-31';const original=JSON.stringify(old),box=boot({version:1,currentId:'v1',plans:[old]});
+  assert.equal(box.els.refreshFinancial.hidden,false);box.els.refreshFinancial.onclick();const db=box.read();assert.equal(JSON.stringify(db.plans.find(p=>p.id==='v1')),original);
+  assert.equal(db.plans.length,2);assert.equal(db.plans.find(p=>p.id===db.currentId).template.financialStrategy.revision,F.VERSION);
+  assert.equal(box.els.refreshFinancial.hidden,true);
+});
+
 async function testAsync(name,fn){await fn();passed++;console.log('PASS',name);}
 const CAL={version:'测试日历',from:'2026-01-01',to:'2027-12-31',holidays:[],workingDays:[]};
 function cloudStub(version,tag){
@@ -124,7 +148,7 @@ function cloudStub(version,tag){
   await testAsync('首屏立即用内置包渲染，不等云端返回',async()=>{
     const box=boot(undefined,cloudStub('cloud-v1','1'));
     // boot() 内 vm 已同步执行完毕：此刻应已挂上事件库，而不是“未载入”空壳
-    assert.equal(box.els.eventCount.textContent,seed.events.length+' 个事件');
+    assert.equal(box.els.eventCount.textContent,(seed.events.length+1)+' 个事件');
     assert.ok(box.els.planSelect.innerHTML.includes('未命名排程方案'),'应已出现当前方案');
   });
 
@@ -133,7 +157,7 @@ function cloudStub(version,tag){
     await new Promise(r=>setTimeout(r,120));
     const p=box.read().plans[0];
     assert.equal(p.ruleRelease.id,'rel-1','空白方案应换成云端发布');
-    assert.equal(p.template.events.length,seed.events.length);
+    assert.equal(p.template.events.length,seed.events.length+1);
   });
 
   await testAsync('云端返回后，已填锚点的方案不动',async()=>{
@@ -145,15 +169,26 @@ function cloudStub(version,tag){
     assert.equal(box.state['ipo-scheduler-plans-v1'],before,'动过的方案不应被云端替换');
   });
 
+  await testAsync('只填了首批基准日、尚未填可用日，也不能被云端覆盖',async()=>{
+    const box=boot(undefined,cloudStub('cloud-v3','3'));
+    box.els.financialMode.onchange({target:{value:'staged'}});
+    box.els.financialBaseDate.onchange({target:{value:'2023-12-31'}});
+    const before=box.state['ipo-scheduler-plans-v1'];
+    await new Promise(r=>setTimeout(r,120));
+    assert.equal(box.state['ipo-scheduler-plans-v1'],before);
+    assert.equal(box.read().plans.find(p=>p.id===box.read().currentId).template.financialStrategy.mode,'staged');
+  });
+
   await testAsync('云端落到内置兜底时不假装切换、不弹提示',async()=>{
     const builtin={load:async()=>{await new Promise(r=>setTimeout(r,20));
       return {mode:'builtin',release:null,data:{rules:seed,agenda:[],calendars:{hk:CAL,cn:CAL,us:CAL}}};}};
     const box=boot(undefined,builtin);
     await new Promise(r=>setTimeout(r,120));
-    assert.equal(box.els.eventCount.textContent,seed.events.length+' 个事件','兜底时界面照常可用');
+    assert.equal(box.els.eventCount.textContent,(seed.events.length+1)+' 个事件','兜底时界面照常可用');
     assert.ok(String(box.els.snapshotInfo.textContent).includes('内置'),'来源仍应是内置包');
     assert.ok(!String(box.els.toast.textContent).includes('已切换到云端'),'不应提示已切换到云端');
   });
 
   console.log('\n'+passed+' 组 UI 测试通过');
 })();
+

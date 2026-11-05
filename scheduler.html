@@ -7,7 +7,7 @@
 </head>
 <body>
 <header class="topbar">
-  <div class="brand"><span class="brand-mark">JT</span><div><small>PROJECT TIMELINE</small><h1>IPO 项目排程器 <span>v0.12 云端规则版</span></h1></div></div>
+  <div class="brand"><span class="brand-mark">JT</span><div><small>PROJECT TIMELINE</small><h1>IPO 项目排程器 <span>v0.15 中港日历及收尾节奏版</span></h1></div></div>
   <nav><button id="exportPlan">导出方案</button><label class="button" for="importPlan">导入方案<input type="file" id="importPlan" accept=".json,application/json" hidden></label></nav>
 </header>
 <div class="workspace">
@@ -30,20 +30,26 @@
       <button id="exportCalendars" class="wide">导出当前默认日历</button>
       <p class="hint">这里的规则导入仅用于本机测试，不会发布到云端。正式发布暂通过 Supabase 管理控制台或受权管理工具操作；网页无云端写权限。</p></details>
     </section>
-    <section><h3>02 项目锚点</h3><div id="anchorInputs"><p class="muted">载入规则后，填写项目日期。</p></div>
+    <section><h3>02 项目锚点</h3>
+      <label>财务工作开展方式<select id="financialMode"><option value="legacy" disabled>原方案（未启用财务锚点）</option><option value="complete">完整数据模式</option><option value="staged">分阶段模式</option></select></label>
+      <p id="financialInfo" class="hint"></p>
+      <button id="refreshFinancial" hidden>基于新版财务规则创建修订副本</button>
+      <label id="financialCoverageLabel" hidden>首批财务数据基准日<input type="date" id="financialBaseDate"></label>
+      <p class="hint">数据可用日由你固定输入，指审计师提供可供分析、建模和撰写的数据，不等于审计报告签署或定稿日。</p>
+      <div id="anchorInputs"><p class="muted">载入规则后，填写项目日期。</p></div>
       <label>A1锚点（用于备选试算）<select id="a1Select"><option value="">不指定</option></select></label>
       <label class="check" hidden><input type="checkbox" id="a1BusinessDaysOnly" checked>A1仅安排在项目工作日</label>
-      <p class="hint">这是本方案的日期限制，不是法规核验。按项目日历判断工作日，未覆盖日期仅按周末处理并发出提示。</p>
+      <p class="hint">新版一阶段和两阶段均采用中港共同工作日：任一地假期不计工期、不安排普通事件或大会，内地周末补班不会覆盖香港周末。用户输入的数据锚点保持原样。旧方案保留原日历，需创建修订副本采用新规则。</p>
     </section>
     <section><h3>03 排程偏好</h3>
       <label class="check" hidden><input type="checkbox" id="spreadWeeks" checked>同线程尽量错开周次</label>
       <label class="check" hidden><input type="checkbox" id="keepPrevious" checked>重排时尽量保留已确认日期</label>
       <label class="check" hidden><input type="checkbox" id="preferWorkingDays" checked>普通事件尽量安排在工作日</label>
       <label>重排方式<select id="replanMode"><option value="optimize">重新优化（保留原版，先预览）</option><option value="repair_only">仅修复硬冲突（可行旧版不变）</option></select></label>
-      <p class="hint">硬条件优先，其次工作日；按项目窗口安排阶段，奖励两周会议节奏，也允许一周或三周。不会为填满每周制造任务。人工锁定始终不变。</p>
+      <p class="hint">按资料就绪和申报前收尾窗口排期，奖励两周大会节奏，允许紧张时压缩、宽松时拉长及混合间隔。收尾窗口是可调整的软偏好，不是法规期限。人工锁定不擅自移动，若与工作日冲突会提示。</p>
     </section>
     <details hidden><summary>日历与计算范围</summary>
-      <p class="calendar-notice">已内置2026–2028年中、美、港假期；内地2027–2028年及香港2028年为暂定估算，待正式公布后更新。美国为联邦假期，不等同交易所日历。未覆盖日期仅按周末处理。</p>
+      <p class="calendar-notice">已内置2024–2028年中、美、港假期；内地2027–2028年及香港2028年为暂定估算，待正式公布后更新。新版默认结合内地和香港日历，美国日历仅用于明确引用它的规则。美国为联邦假期，不等同交易所日历。未覆盖日期仅按周末处理并提示。</p>
       <details><summary>查看内地暂定补班日</summary><p class="hint">2027：2月14日、5月8日、9月26日、10月9日；2028：1月22日、2月5日、4月8日、5月6日、9月30日、10月14日。以上均为排程假设，并非官方通知。</p></details>
       <label class="button wide" for="importCalendar">导入日历 JSON<input type="file" id="importCalendar" accept=".json,application/json" hidden></label>
       <button id="calendarSample" class="wide">下载日历格式示例</button><p id="calendarInfo" class="hint">尚未导入日历</p>
@@ -68,7 +74,7 @@
   <aside id="inspector" class="inspector"><div class="heading"><h2>事件详情</h2><button id="closeInspector" aria-label="关闭详情">×</button></div><div id="eventDetails"><p class="muted">生成时间表后，点击任意事件查看日期依据、前后关系与人工锁定。</p></div></aside>
 </div>
 <div id="toast" class="toast" hidden role="status"></div>
-<script src="scheduler-engine.js?v=0.10.0"></script>
+<script src="scheduler-engine.js?v=0.15.0"></script>
 <script src="scheduler-draft.js?v=0.1.0"></script>
 <script src="scheduler-rule-revision.js?v=0.2.0"></script>
 <script src="scheduler-prospectus-revision.js?v=0.3.0"></script>
@@ -77,9 +83,11 @@
 <script src="scheduler-prospectus-grouping.js?v=0.8.0"></script>
 <script src="scheduler-meeting-cycle.js?v=0.9.0"></script>
 <script src="scheduler-flexible-planning.js?v=0.10.0"></script>
-<script src="scheduler-public-holidays.js?v=0.5.0"></script>
+<script src="scheduler-public-holidays.js?v=0.15.0"></script>
 <script src="cloud-config.js?v=0.11.0"></script>
 <script src="scheduler-cloud-library.js?v=0.11.0"></script>
-<script src="scheduler-app.js?v=0.12.0"></script>
+<script src="scheduler-financial-planning.js?v=0.15.0"></script>
+<script src="scheduler-app.js?v=0.15.0"></script>
 </body>
 </html>
+
