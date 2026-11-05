@@ -142,6 +142,7 @@
       if(r.settings.anchorDates[e.id]&&e.id!==r.settings.releaseAnchorId&&E.iso(day)!==r.settings.anchorDates[e.id])continue;
       if(r.settings.locks[e.id]&&E.iso(day)!==r.settings.locks[e.id])continue;
       if((r.settings.blockedDates||[]).includes(E.iso(day)))continue;
+      if(p.template.project.calculatedWorkingDaysOnly&&e.dateMode==='calculated'&&!cal.get(p.template.project.defaultCalendar||'hk').isWorking(day))continue;
       if(r.settings.a1BusinessDaysOnly&&e.id===(r.settings.releaseAnchorId||r.settings.a1Id)&&!cal.get(p.template.project.defaultCalendar||'hk').isWorking(day))continue;
       if(rels.filter(x=>x.strength==='hard').every(x=>{const a=x.fromId===e.id?day:E.parseDate(dates[x.fromId]),b=x.toId===e.id?day:E.parseDate(dates[x.toId]);return b>=cal.add(a,x.minLag,x.unit,x.name)&&(x.maxLag==null||b<=cal.add(a,x.maxLag,x.unit,x.name));}))allowed.push(day);
     }
@@ -156,10 +157,12 @@
     const collisionReasons=[...new Set((r.run.weekCollisions||[]).filter(x=>x.eventIds.includes(e.id)).map(x=>x.reason))];
     const outgoing=rels.filter(x=>x.fromId===e.id),incoming=rels.filter(x=>x.toId===e.id);
     const agenda=p.conferenceAgenda?.find(a=>a.eventCode===e.code);
+    const closeout=r.run.details?.[e.id]?.softWindow;
     const agendaNames=codes=>codes.map(code=>{const item=p.template.events.find(x=>x.code===code);return esc(item?code+' '+item.name:code);}).join('；');
     $('eventDetails').innerHTML=`<small>${esc(e.code)} · ${esc(p.template.threads.find(x=>x.id===e.threadId)?.name)}</small><h3>${esc(e.name)}</h3><div class="detail-date">${r.run.dates[e.id]}</div><div class="detail-info">${e.dateMode==='anchor_input'?'项目锚点':r.settings.locks[e.id]?'人工锁定':'自动推荐'} · ${p.pending?'预览方案':'已确认方案'}<br>其他事件不动时可选 ${allowed.length} 天${allowed.length?`：${E.iso(allowed[0])} 至 ${E.iso(allowed.at(-1))}`:''}。${allowed.length&&allowed.at(-1)-allowed[0]+1!==allowed.length?'范围内有禁用日期，不是每一天都可选。':''}</div>
       <label>人工锁定日期<input type="date" id="lockDate" value="${esc(p.settings.locks[e.id]||r.run.dates[e.id])}"></label><div class="button-row"><button id="lockEvent">锁定并待重排</button><button id="unlockEvent">解除锁定</button></div><p class="hint">锁定不直接改动时间表，重新试排后生效。锚点请优先在左侧修改。</p>
       ${same.length?`<div class="calendar-notice">同线程同周：${same.map(x=>esc(x.code+' '+x.name)).join('；')}。${collisionReasons.length?collisionReasons.map(esc).join(' '):'错周是偏好，不能突破同日关系、锁定日期或硬区间。'}</div>`:''}
+      ${closeout?`<p class="calendar-notice">建议收尾窗口：${esc(closeout.earliest)} 至 ${esc(closeout.latest)}。${closeout.satisfied?'本次已落在窗口内。':'本次偏离窗口，建议复核。'}这是项目软偏好，不是硬期限或法规有效期。</p>`:''}
       ${agenda?`<h3>本次大会讨论安排</h3><p>${esc(agenda.purpose)}</p><p class="hint">会前材料：${agendaNames(agenda.inputs)}</p><p class="hint">会后推进：${agendaNames(agenda.outputs)}</p><p class="hint">议程是本版规则的业务映射；实际日期由下方前后关系共同约束。</p>`:''}
       <h3>前置条件 · ${incoming.length}</h3>${incoming.map(x=>ruleHTML(x,byId)).join('')||'<p class="hint">没有前置关系。</p>'}<h3>直接影响的后续事件 · ${outgoing.length}</h3>${outgoing.map(x=>ruleHTML(x,byId)).join('')||'<p class="hint">没有直接后续关系。</p>'}`;
   }
