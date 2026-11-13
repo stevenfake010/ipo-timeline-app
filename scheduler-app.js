@@ -33,21 +33,21 @@
   function blank(){return{id:uid(),name:'未命名排程方案',template:null,source:'',fingerprint:'',settings:{anchorDates:{},locks:{},calendars:copy(defaultCalendars),calendarRelease:copy(defaultRelease),spreadWeeks:true,keepPrevious:true,preferWorkingDays:true,a1BusinessDaysOnly:true,timeBudgetMs:10000},result:null,pending:null,history:[],dirty:true};}
   function applyLibrary(p){const t=library.template;p.template=copy(t);p.source=library.source;p.ruleRelease=copy(library.release||null);p.conferenceAgenda=copy(library.agenda||[]);p.settings.a1Id=t.events.find(e=>e.dateMode==='anchor_input'&&/A1/i.test(e.name))?.id||'';
     if(window.IPOFinancialPlanning?.supported(t)){p.financialBaseTemplate=copy(t);p.template=window.IPOFinancialPlanning.create(t,'complete');}
-    p.fingerprint=fingerprint(p.template);
+    p.conferenceAgenda=copy(p.template.conferenceAgenda||p.conferenceAgenda);p.fingerprint=fingerprint(p.template);
   }
-  function changeFinancialMode(mode,force=false){
+  function changeFinancialMode(mode,force=false,options){
     const old=plan(),F=window.IPOFinancialPlanning;if(!old?.template||!F)return;
     if(old.template.financialStrategy?.mode===mode&&!force)return;
     try{
-      const base=old.financialBaseTemplate||old.template,next=F.create(base,mode);
+      const base=old.financialBaseTemplate||old.template,next=F.create(base,mode,options||old.template.executionOptions||{});
       // Any existing snapshot is preserved by an explicit revision copy, including unsolved user edits.
       stop();const p=copy(old);p.id=uid();p.name+=' · '+(mode==='staged'?'分阶段':'完整数据')+'修订';
-      p.financialBaseTemplate=copy(base);p.template=next;p.fingerprint=fingerprint(next);
+      p.financialBaseTemplate=copy(base);p.template=next;p.conferenceAgenda=copy(next.conferenceAgenda||p.conferenceAgenda||[]);p.fingerprint=fingerprint(next);
       p.settings.calendars=historicalCalendars(p.settings.calendars,true);p.settings.calendarOverlayRevision='2026-11-02-history-v1';
       const ids=new Set(next.events.map(e=>e.id));
       for(const key of ['anchorDates','locks'])p.settings[key]=Object.fromEntries(Object.entries(p.settings[key]||{}).filter(([id])=>ids.has(id)));
       p.result=null;p.pending=null;p.history=[];p.dirty=true;
-      db.plans.push(p);db.currentId=p.id;selected=null;save();render();status('已创建财务策略修订副本。原方案未改动；请补齐固定数据可用日后重新试排。','warning');
+      db.plans.push(p);db.currentId=p.id;selected=null;save();render();status('已创建排程规则修订副本。原方案未改动；请确认固定数据可用日后重新试排。','warning');
     }catch(e){render();status(e.message,'error');}
   }
   async function newPlan(){if(libraryLoading){toast('正在读取已发布规则，请稍候');return;}if(libraryError){status(libraryError,'error');return;}if(window.IPOLibraryCloud&&window.IPO_CLOUD_CONFIG?.enabled)await refreshCloud();stop();const p=blank();applyLibrary(p);db.plans.push(p);db.currentId=p.id;selected=null;save();render();}
@@ -89,6 +89,8 @@
     $('financialInfo').textContent=financial?(financial.mode==='staged'?'先基于首批期间开展，完整数据出来后必须补充尽调、更新模型和章节并复核第三方覆盖。切换模式将创建修订副本。':'实质工作依赖完整报告期数据。需求清单与假设沟通可提前开展；切换模式将创建修订副本。'):'原方案快照保持不变。选择模式可创建财务锚点修订副本；不支持的自定义库请另行适配。';
     $('financialCoverageLabel').hidden=financial?.mode!=='staged';$('financialBaseDate').value=p.settings.financialBaseDate||'';
     $('refreshFinancial').hidden=!financial||financial.revision===F?.VERSION||!p.financialBaseTemplate;
+    $('cybersecurityLabel').hidden=!t?.executionOptions;$('cybersecurity').checked=!!t?.executionOptions?.cybersecurity;
+    $('executionInfo').textContent=t?.executionOptions?'网络安全开关调整会创建修订副本。境外法律尽调先确认范围；如不需要，可在首个境外尽调事件详情中确认，不设全局开关。聘任倒排、处理间隔均为可校准初值。':'';
     $('anchorInputs').innerHTML=anchors.length?anchors.map(e=>`<label>${esc(e.name)}<input type="date" data-anchor="${esc(e.id)}" value="${esc(p.settings.anchorDates[e.id]||'')}"></label>`).join(''):'<p class="muted">载入规则后，填写项目日期。</p>';
     $('a1Select').innerHTML='<option value="">不指定</option>'+anchors.filter(e=>![financial?.fullAnchorId,financial?.firstAnchorId].includes(e.id)).map(e=>`<option value="${esc(e.id)}">${esc(e.name)}</option>`).join('');$('a1Select').value=p.settings.a1Id||'';
     $('a1BusinessDaysOnly').checked=true;$('spreadWeeks').checked=true;$('keepPrevious').checked=true;$('preferWorkingDays').checked=true;
@@ -144,6 +146,8 @@
       if((r.settings.blockedDates||[]).includes(E.iso(day)))continue;
       if(p.template.project.calculatedWorkingDaysOnly&&e.dateMode==='calculated'&&!cal.get(p.template.project.defaultCalendar||'hk').isWorking(day))continue;
       if(r.settings.a1BusinessDaysOnly&&e.id===(r.settings.releaseAnchorId||r.settings.a1Id)&&!cal.get(p.template.project.defaultCalendar||'hk').isWorking(day))continue;
+      const candidate={...dates,[e.id]:E.iso(day)};
+      if((p.template.readinessGroups||[]).some(g=>{const ready=Math.max(Math.min(...g.anyOf.map(id=>E.parseDate(candidate[id]))),...g.readyAfterEventIds.map(id=>E.parseDate(candidate[id])));return E.parseDate(candidate[g.eventId])<cal.add(ready,g.minLag,g.unit,g.calendar==='inherit'?p.template.project.defaultCalendar||'hk':g.calendar);}))continue;
       if(rels.filter(x=>x.strength==='hard').every(x=>{const a=x.fromId===e.id?day:E.parseDate(dates[x.fromId]),b=x.toId===e.id?day:E.parseDate(dates[x.toId]);return b>=cal.add(a,x.minLag,x.unit,x.name)&&(x.maxLag==null||b<=cal.add(a,x.maxLag,x.unit,x.name));}))allowed.push(day);
     }
     return{rels,allowed};
@@ -156,15 +160,20 @@
     const same=p.template.events.filter(x=>x.id!==e.id&&x.threadId===e.threadId&&E.week(E.parseDate(r.run.dates[x.id]))===E.week(E.parseDate(r.run.dates[e.id])));
     const collisionReasons=[...new Set((r.run.weekCollisions||[]).filter(x=>x.eventIds.includes(e.id)).map(x=>x.reason))];
     const outgoing=rels.filter(x=>x.fromId===e.id),incoming=rels.filter(x=>x.toId===e.id);
-    const agenda=p.conferenceAgenda?.find(a=>a.eventCode===e.code);
+    const agenda=(p.template.conferenceAgenda||p.conferenceAgenda)?.find(a=>a.eventCode===e.code);
+    const readiness=(p.template.readinessGroups||[]).filter(g=>g.eventId===e.id);
     const closeout=r.run.details?.[e.id]?.softWindow;
     const agendaNames=codes=>codes.map(code=>{const item=p.template.events.find(x=>x.code===code);return esc(item?code+' '+item.name:code);}).join('；');
     $('eventDetails').innerHTML=`<small>${esc(e.code)} · ${esc(p.template.threads.find(x=>x.id===e.threadId)?.name)}</small><h3>${esc(e.name)}</h3><div class="detail-date">${r.run.dates[e.id]}</div><div class="detail-info">${e.dateMode==='anchor_input'?'项目锚点':r.settings.locks[e.id]?'人工锁定':'自动推荐'} · ${p.pending?'预览方案':'已确认方案'}<br>其他事件不动时可选 ${allowed.length} 天${allowed.length?`：${E.iso(allowed[0])} 至 ${E.iso(allowed.at(-1))}`:''}。${allowed.length&&allowed.at(-1)-allowed[0]+1!==allowed.length?'范围内有禁用日期，不是每一天都可选。':''}</div>
       <label>人工锁定日期<input type="date" id="lockDate" value="${esc(p.settings.locks[e.id]||r.run.dates[e.id])}"></label><div class="button-row"><button id="lockEvent">锁定并待重排</button><button id="unlockEvent">解除锁定</button></div><p class="hint">锁定不直接改动时间表，重新试排后生效。锚点请优先在左侧修改。</p>
+      ${e.code==='EVT-198'?`<label>专项境外法律尽调需求<select id="overseasDecision"><option value="pending">待确认（先预留后续工作）</option><option value="yes">需要</option><option value="no">不需要（仅保留范围确认节点）</option></select></label><p class="hint">调整会创建修订副本，不改动原方案。</p>`:''}
+      ${readiness.map(g=>`<p class="calendar-notice">任一材料就绪即可：${g.anyOf.map(id=>esc(byId.get(id)?.name)).join(' / ')}。${g.readyAfterEventIds.length?'同时须完成：'+g.readyAfterEventIds.map(id=>esc(byId.get(id)?.name)).join('、')+'。':''}目标在条件就绪后 ${g.targetLag} 个项目工作日启动。</p>`).join('')}
       ${same.length?`<div class="calendar-notice">同线程同周：${same.map(x=>esc(x.code+' '+x.name)).join('；')}。${collisionReasons.length?collisionReasons.map(esc).join(' '):'错周是偏好，不能突破同日关系、锁定日期或硬区间。'}</div>`:''}
       ${closeout?`<p class="calendar-notice">建议收尾窗口：${esc(closeout.earliest)} 至 ${esc(closeout.latest)}。${closeout.satisfied?'本次已落在窗口内。':'本次偏离窗口，建议复核。'}这是项目软偏好，不是硬期限或法规有效期。</p>`:''}
-      ${agenda?`<h3>本次大会讨论安排</h3><p>${esc(agenda.purpose)}</p><p class="hint">会前材料：${agendaNames(agenda.inputs)}</p><p class="hint">会后推进：${agendaNames(agenda.outputs)}</p><p class="hint">议程是本版规则的业务映射；实际日期由下方前后关系共同约束。</p>`:''}
+      ${agenda?`<h3>本次大会讨论安排</h3><p>${esc(agenda.purpose)}</p><p class="hint">会前材料：${agendaNames(agenda.inputs)}</p><p class="hint">后续重点（部分可提前准备）：${agendaNames(agenda.outputs)}</p><p class="hint">议程是本版规则的业务映射；实际日期由下方前后关系共同约束。</p>`:''}
+      ${e.sameWeekGroup?'<p class="hint">本事件与同组协作事项允许同周安排，不为错周而延迟；最短处理间隔仍须满足。</p>':''}
       <h3>前置条件 · ${incoming.length}</h3>${incoming.map(x=>ruleHTML(x,byId)).join('')||'<p class="hint">没有前置关系。</p>'}<h3>直接影响的后续事件 · ${outgoing.length}</h3>${outgoing.map(x=>ruleHTML(x,byId)).join('')||'<p class="hint">没有直接后续关系。</p>'}`;
+    if(e.code==='EVT-198')$('overseasDecision').value=p.template.executionOptions?.overseasRequired===false?'no':p.template.executionOptions?.overseasRequired===true?'yes':'pending';
   }
   function ruleHTML(x,byId){const ok=x.b>=x.l&&x.b<=x.u;return`<div class="rule ${ok?'':'warn'}"><span class="tag">${x.strength==='hard'?'硬条件':'软偏好'} · ${ok?'范围已满足':'偏好未满足'}</span><p>${esc(byId.get(x.fromId)?.code+' '+byId.get(x.fromId)?.name)} → ${esc(byId.get(x.toId)?.code+' '+byId.get(x.toId)?.name)}</p><p class="hint">间隔 ${x.minLag} / ${x.targetLag??'不设目标'} / ${x.maxLag??'不限'} ${unitLabel(x.unit)}<br>允许后置日：${E.iso(x.l)} 至 ${Number.isFinite(x.u)?E.iso(x.u):'不限'}<br>${x.target==null?'仅检查就绪顺序，不额外计目标等待。':`目标后置日：${E.iso(x.target)}；实际偏移 ${x.b-x.target} 个自然日`}</p></div>`;}
   function renderHistory(){const p=plan();$('historyList').innerHTML=p?.history.length?p.history.slice().reverse().map(h=>`<div class="history-item"><span>${esc(new Date(h.at).toLocaleString('zh-CN'))} · ${Object.keys(h.run.dates).length} 个事件</span><button data-restore="${esc(h.id)}">恢复此版本</button></div>`).join(''):'还没有已确认的排程。';}
@@ -228,6 +237,8 @@
   $('newPlan').onclick=newPlan;
   $('financialMode').onchange=e=>changeFinancialMode(e.target.value);
   $('refreshFinancial').onclick=()=>changeFinancialMode(plan().template.financialStrategy.mode,true);
+  $('cybersecurity').onchange=e=>{const p=plan();changeFinancialMode(p.template.financialStrategy.mode,true,{...p.template.executionOptions,cybersecurity:e.target.checked});};
+  $('eventDetails').onchange=e=>{if(e.target.id!=='overseasDecision')return;const p=plan();changeFinancialMode(p.template.financialStrategy.mode,true,{...p.template.executionOptions,overseasRequired:e.target.value==='pending'?null:e.target.value==='yes'});};
   $('financialBaseDate').onchange=e=>{plan().settings.financialBaseDate=e.target.value;mutate();};
   $('copyPlan').onclick=()=>{stop();const p=copy(plan());p.id=uid();p.name+=' · 副本';p.pending=null;db.plans.push(p);db.currentId=p.id;save();render();};
   $('deletePlan').onclick=()=>{

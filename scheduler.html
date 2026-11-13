@@ -7,7 +7,7 @@
 </head>
 <body>
 <header class="topbar">
-  <div class="brand"><span class="brand-mark">JT</span><div><small>PROJECT TIMELINE</small><h1>IPO 项目排程器 <span>v0.15 中港日历及收尾节奏版</span></h1></div></div>
+  <div class="brand"><span class="brand-mark">JT</span><div><small>PROJECT TIMELINE</small><h1>IPO 项目排程器 <span>v0.17 硬期限与并行收尾版</span></h1></div></div>
   <nav><button id="exportPlan">导出方案</button><label class="button" for="importPlan">导入方案<input type="file" id="importPlan" accept=".json,application/json" hidden></label></nav>
 </header>
 <div class="workspace">
@@ -33,7 +33,9 @@
     <section><h3>02 项目锚点</h3>
       <label>财务工作开展方式<select id="financialMode"><option value="legacy" disabled>原方案（未启用财务锚点）</option><option value="complete">完整数据模式</option><option value="staged">分阶段模式</option></select></label>
       <p id="financialInfo" class="hint"></p>
-      <button id="refreshFinancial" hidden>基于新版财务规则创建修订副本</button>
+      <button id="refreshFinancial" hidden>基于新版排程规则创建修订副本</button>
+      <label class="check" id="cybersecurityLabel" hidden><input type="checkbox" id="cybersecurity">开展网络安全及数据合规尽调</label>
+      <p id="executionInfo" class="hint"></p>
       <label id="financialCoverageLabel" hidden>首批财务数据基准日<input type="date" id="financialBaseDate"></label>
       <p class="hint">数据可用日由你固定输入，指审计师提供可供分析、建模和撰写的数据，不等于审计报告签署或定稿日。</p>
       <div id="anchorInputs"><p class="muted">载入规则后，填写项目日期。</p></div>
@@ -74,7 +76,7 @@
   <aside id="inspector" class="inspector"><div class="heading"><h2>事件详情</h2><button id="closeInspector" aria-label="关闭详情">×</button></div><div id="eventDetails"><p class="muted">生成时间表后，点击任意事件查看日期依据、前后关系与人工锁定。</p></div></aside>
 </div>
 <div id="toast" class="toast" hidden role="status"></div>
-<script src="scheduler-engine.js?v=0.15.0"></script>
+<script src="scheduler-engine.js?v=0.17.0"></script>
 <script src="scheduler-draft.js?v=0.1.0"></script>
 <script src="scheduler-rule-revision.js?v=0.2.0"></script>
 <script src="scheduler-prospectus-revision.js?v=0.3.0"></script>
@@ -86,8 +88,9 @@
 <script src="scheduler-public-holidays.js?v=0.15.0"></script>
 <script src="cloud-config.js?v=0.11.0"></script>
 <script src="scheduler-cloud-library.js?v=0.11.0"></script>
-<script src="scheduler-financial-planning.js?v=0.15.0"></script>
-<script src="scheduler-app.js?v=0.15.0"></script>
+<script src="scheduler-execution-revision.js?v=0.17.0"></script>
+<script src="scheduler-financial-planning.js?v=2026-11-13-v7"></script>
+<script src="scheduler-app.js?v=2026-11-13-v7"></script>
 </body>
 </html>
 

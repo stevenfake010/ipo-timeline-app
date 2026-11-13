@@ -1,9 +1,10 @@
 /* Project-specific dependency compilation. Never rewrites the input library or saved plans. */
 (function(root){
   'use strict';
-  const VERSION='2026-11-02-finance-v4',copy=x=>JSON.parse(JSON.stringify(x));
+  const execution=typeof module!=='undefined'&&module.exports?require('./scheduler-execution-revision'):root.IPOExecutionRevision;
+  const VERSION='2026-11-13-execution-v7',copy=x=>JSON.parse(JSON.stringify(x));
   function supported(t){return !!t&&t.ruleRevision==='2026-10-30-r8'&&!t.financialStrategy&&Array.isArray(t.events)&&!t.events.some(e=>/^EVT-16[2-8]$/.test(e.code)||/^finance-v1-/.test(e.id))&&['EVT-027','EVT-028','EVT-029','EVT-030','EVT-035','EVT-036','EVT-038','EVT-040','EVT-041','EVT-042','EVT-043','EVT-044','EVT-079','EVT-081','EVT-084','EVT-085','EVT-153'].every(c=>t.events.some(e=>e.code===c));}
-  function create(input,mode='complete'){
+  function create(input,mode='complete',options={}){
     if(!['complete','staged'].includes(mode))throw Error('财务工作开展方式无效');
     if(!supported(input))throw Error('此规则快照未适配财务锚点策略，请保留原方案并使用当前默认规则新建');
     const t=copy(input),by=new Map(t.events.map(e=>[e.code,e]));
@@ -115,7 +116,50 @@
       t.planningPolicy.meetingPolicy={version:1,firstPreparationWorkdays:30,finalBeforeA1Workdays:12};
       t.planningPolicy.eventLayoutWeights[get('EVT-141').id]=6;
     }
-    return t;
+    appendExecutionThreads(t);
+    return execution.apply(t,options);
+  }
+  // Scheduling defaults, not legal notice periods or registration approval deadlines.
+  // Appended only to new/revised copies; saved plans and the source library stay unchanged.
+  function appendExecutionThreads(t){
+    const by=new Map(t.events.map(e=>[e.code,e])),get=c=>{const e=by.get(c);if(!e)throw Error('缺少事件 '+c);return e;};
+    const laneOf=c=>t.threads.find(th=>th.id===get(c).threadId).laneId;
+    function thread(key,name,ref){const id='execution-v5-'+key;if(t.threads.some(th=>th.id===id))throw Error('线程编码冲突：'+id);t.threads.push({id,laneId:laneOf(ref),name,description:''});return id;}
+    function add(n,name,threadId){const code='EVT-'+n,id='execution-v5-'+code;if(by.has(code)||t.events.some(e=>e.id===id))throw Error('执行规则事件编码冲突：'+code);const e={id,code,name,threadId,dateMode:'calculated',description:'',dependencies:[]};t.events.push(e);by.set(code,e);}
+    function edge(a,b,min=0,target=null){a='EVT-'+a;b='EVT-'+b;get(b).dependencies.push({id:'execution-v5-'+a+'-'+b,predecessorEventId:get(a).id,minLag:min,targetLag:target,maxLag:null,unit:'business_day',calendar:'inherit',strength:'hard'});}
+    function target(n,lag,anchor='003'){const p=t.planningPolicy;if(!p)return;p.anchorRelativeTargets||={};p.eventLayoutWeights||={};p.anchorRelativeTargets[get('EVT-'+n).id]={anchorEventId:get('EVT-'+anchor).id,lag,unit:'business_day',calendar:'inherit'};p.eventLayoutWeights[get('EVT-'+n).id]=3;}
+    const letters=thread('confirmation','背对背确认函','EVT-133');
+    add(169,'传阅背对背确认函初稿并由公司及律师审阅',letters);
+    add(170,'基本定稿背对背确认函',letters);
+    add(171,'正式签署背对背确认函',letters);
+    edge('002',169);edge(169,170,5);edge('149',170);edge(170,171,0);edge('150',171);edge(171,'134');
+    target(169,-25);target(170,-5);target(171,-1);
+
+    const cover=thread('cover','招股书封面设计（Fancy Cover）','EVT-151');
+    add(172,'开始招股书封面设计',cover);add(173,'定稿招股书封面设计方案',cover);
+    edge('002',172);edge('127',172);edge(172,173,3,5);edge(173,'151');
+    target(172,-15);target(173,-10);
+
+    const governance=thread('governance','公司治理及内部决策','EVT-119');
+    add(174,'开始准备香港上市后公司章程修订内容',governance);
+    add(175,'传阅香港上市后公司章程及公司治理文件初稿',governance);
+    add(176,'定稿香港上市后公司章程及公司治理文件',governance);
+    add(177,'定稿A1前董事会及股东大会会议文件',governance);
+    add(178,'召开A1前董事会',governance);add(179,'召开A1前股东大会',governance);
+    edge('002',174,0,1);edge(174,175,5,10);edge(175,176,3,5);
+    edge(176,177,2,5);edge('119',177);edge(177,178,2,5);edge(178,179,1,10);edge(179,'133');
+    target(174,1,'002');target(175,-35);target(176,-25);target(177,-20);target(178,-15);target(179,-5);
+
+    const trademark=thread('trademark','香港商标注册（如需）','EVT-115');
+    add(180,'确认香港商标注册需求并确定商标代理或律师（如需）',trademark);
+    add(181,'启动香港商标查册（如需）',trademark);
+    add(182,'完成商标查册并提交商标注册申请（如需）',trademark);
+    add(183,'传阅香港商标法律意见书初稿（如需）',trademark);
+    add(184,'定稿香港商标法律意见书（如需）',trademark);
+    edge('002',180);edge(180,181,0,1);edge(181,182,3,10);edge(182,183,3,10);edge(183,184,2,5);edge(184,'150');
+    // Application lead time is a soft planning preference, not a statutory two-month condition.
+    target(180,-55);target(181,-50);target(182,-40);target(183,-25);target(184,-20);
+    t.executionRevision=VERSION;
   }
   const api={VERSION,supported,create};if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.IPOFinancialPlanning=api;
 })(typeof globalThis!=='undefined'?globalThis:this);

@@ -10,12 +10,14 @@ for(const mode of ['complete','staged']){
  const t=F.create(base,mode),m=new Map(t.events.map(e=>[e.code,e])),dep=(a,b)=>m.get(b).dependencies.find(d=>d.predecessorEventId===m.get(a).id);
  assert.equal(t.project.defaultCalendar,'cn_hk');assert.equal(t.project.calculatedWorkingDaysOnly,true);assert.deepEqual(E.validateTemplate(t),[]);
  assert.equal(dep(mode==='staged'?'EVT-163':'EVT-162','EVT-040').targetLag,null);
- assert.equal(dep('EVT-034','EVT-035').targetLag,null);
+ // v0.17 removes the preceding-conference gate, so the writing interval has a useful target again.
+ assert.equal(dep('EVT-034','EVT-035').targetLag,7);
  assert.equal(dep('EVT-022','EVT-141').targetLag,null);assert.equal(dep('EVT-036','EVT-148').targetLag,null);assert.equal(dep('EVT-147','EVT-148').targetLag,2);assert.equal(dep('EVT-145','EVT-148').targetLag,14);
  if(mode==='staged')assert(!dep('EVT-029','EVT-030'));
  assert(dep(mode==='staged'?'EVT-166':'EVT-162','EVT-076'));assert(dep(mode==='staged'?'EVT-167':'EVT-081','EVT-109'));
  for(const code of ['EVT-051','EVT-065','EVT-076','EVT-109','EVT-112','EVT-120','EVT-085','EVT-148'])assert(t.planningPolicy.anchorRelativeWindows[m.get(code).id]);
- assert(!t.planningPolicy.anchorRelativeWindows[m.get('EVT-125').id],'公司秘书不硬拖到收尾');
+ // v0.17 uses an early appointment window, not the final-work closing window.
+ assert.equal(t.planningPolicy.anchorRelativeWindows[m.get('EVT-125').id].latestLag,-25);
  const anchors={'EVT-002':'2024-10-12','EVT-003':'2025-04-10','EVT-153':'2024-12-31','EVT-162':'2025-02-24'};if(mode==='staged')anchors['EVT-163']='2024-12-02';
  const s={anchorDates:Object.fromEntries(Object.entries(anchors).map(([c,d])=>[m.get(c).id,d])),financialBaseDate:'2023-12-31',calendars,locks:{},a1Id:m.get('EVT-003').id,a1BusinessDaysOnly:true,spreadWeeks:true,preferWorkingDays:true,horizonStart:'2024-10-12',horizonEnd:'2025-04-10',timeBudgetMs:10000};
  const r=E.solve(t,s);assert.equal(r.status,'feasible',JSON.stringify(r.errors||r.conflict));assert.deepEqual(E.verify(t,s,r.dates),[]);
