@@ -1,7 +1,7 @@
 const assert=require('node:assert/strict'),E=require('./scheduler-engine'),F=require('./scheduler-financial-planning');
 const base=require('./scripts/export-library.cjs').build().data.rules,clone=x=>JSON.parse(JSON.stringify(x));
 const before=JSON.stringify(base),full=F.create(base),staged=F.create(base,'staged');
-assert.equal(JSON.stringify(base),before);assert.equal(full.events.length,130);assert.equal(staged.events.length,136);
+assert.equal(JSON.stringify(base),before);assert.equal(full.events.length,165);assert.equal(staged.events.length,171);
 for(const t of [full,staged])assert.deepEqual(E.validateTemplate(t),[]);
 const by=t=>new Map(t.events.map(e=>[e.code,e]));
 function dep(t,a,b){const m=by(t);return m.get(b).dependencies.find(d=>d.predecessorEventId===m.get(a).id);}
