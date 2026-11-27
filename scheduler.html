@@ -2,81 +2,56 @@
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>IPO 项目排程器 · 本地版</title>
-  <link rel="stylesheet" href="scheduler.css?v=0.1.0">
+  <title>港股 IPO · 项目排程</title>
+  <link rel="stylesheet" href="scheduler.css?v=0.19.0">
 </head>
-<body>
+<body id="appShell">
 <header class="topbar">
-  <div class="brand"><span class="brand-mark">JT</span><div><small>PROJECT TIMELINE</small><h1>IPO 项目排程器 <span>v0.17 硬期限与并行收尾版</span></h1></div></div>
-  <nav><button id="exportPlan">导出方案</button><label class="button" for="importPlan">导入方案<input type="file" id="importPlan" accept=".json,application/json" hidden></label></nav>
+  <div class="brand"><svg class="brand-mark" aria-hidden="true" viewBox="0 0 36 36"><rect width="36" height="36" rx="9" fill="#182e4c"/><path d="M7 24h8m-3-6h12m-3-6h8" fill="none" stroke="#87decd" stroke-width="3" stroke-linecap="round"/></svg><span>港股 IPO</span><i></i><h1>项目排程</h1></div>
+  <nav aria-label="工作区"><button id="presentation" aria-pressed="false">演示视图</button><details class="menu" id="fileMenu"><summary>方案文件</summary><div><button id="openImport">导入方案</button><button id="exportPlan">导出方案</button></div></details><input type="file" id="importPlan" accept=".json,application/json" hidden></nav>
 </header>
 <div class="workspace">
-  <aside class="settings">
-    <div class="heading"><h2>排程方案</h2><span class="local-tag">仅本机</span></div>
-    <label>当前方案<select id="planSelect"><option value="">新建方案</option></select></label>
-    <div class="button-row"><button id="newPlan">＋ 新建</button><button id="copyPlan">复制方案</button><button id="deletePlan">删除方案</button></div>
-    <label>方案名称<input id="planName" placeholder="例如：A1 首轮排程"></label>
-    <section><div class="heading"><h3>01 项目规则</h3><span id="eventCount">未载入</span></div>
-      <p id="snapshotInfo" class="muted">新方案自动使用当前事件库。</p>
-      <p id="ruleUpdateNote" class="hint"></p>
-      <details hidden><summary>事件库管理（测试阶段）</summary>
-      <p id="cloudInfo" class="hint">正在检查云端默认数据。</p>
-      <button id="refreshCloud" class="wide">刷新云端已发布版本</button>
-      <p class="hint">更新事件库只影响本浏览器之后新建的方案，已有方案的规则快照不会变更。此入口并非权限保护。</p>
-      <a href="collector.html">打开规则采集器 ↗</a>
-      <label class="button wide" for="importRules">导入规则 JSON<input type="file" id="importRules" accept=".json,application/json" hidden></label>
-      <button id="exportRules" class="wide">导出当前事件库</button>
-      <button id="resetLibrary" class="wide">恢复当前默认事件库</button>
-      <button id="exportCalendars" class="wide">导出当前默认日历</button>
-      <p class="hint">这里的规则导入仅用于本机测试，不会发布到云端。正式发布暂通过 Supabase 管理控制台或受权管理工具操作；网页无云端写权限。</p></details>
-    </section>
-    <section><h3>02 项目锚点</h3>
-      <label>财务工作开展方式<select id="financialMode"><option value="legacy" disabled>原方案（未启用财务锚点）</option><option value="complete">完整数据模式</option><option value="staged">分阶段模式</option></select></label>
-      <p id="financialInfo" class="hint"></p>
-      <button id="refreshFinancial" hidden>基于新版排程规则创建修订副本</button>
-      <label class="check" id="cybersecurityLabel" hidden><input type="checkbox" id="cybersecurity">开展网络安全及数据合规尽调</label>
-      <p id="executionInfo" class="hint"></p>
-      <label id="financialCoverageLabel" hidden>首批财务数据基准日<input type="date" id="financialBaseDate"></label>
-      <p class="hint">数据可用日由你固定输入，指审计师提供可供分析、建模和撰写的数据，不等于审计报告签署或定稿日。</p>
-      <div id="anchorInputs"><p class="muted">载入规则后，填写项目日期。</p></div>
-      <label>A1锚点（用于备选试算）<select id="a1Select"><option value="">不指定</option></select></label>
-      <label class="check" hidden><input type="checkbox" id="a1BusinessDaysOnly" checked>A1仅安排在项目工作日</label>
-      <p class="hint">新版一阶段和两阶段均采用中港共同工作日：任一地假期不计工期、不安排普通事件或大会，内地周末补班不会覆盖香港周末。用户输入的数据锚点保持原样。旧方案保留原日历，需创建修订副本采用新规则。</p>
-    </section>
-    <section><h3>03 排程偏好</h3>
-      <label class="check" hidden><input type="checkbox" id="spreadWeeks" checked>同线程尽量错开周次</label>
-      <label class="check" hidden><input type="checkbox" id="keepPrevious" checked>重排时尽量保留已确认日期</label>
-      <label class="check" hidden><input type="checkbox" id="preferWorkingDays" checked>普通事件尽量安排在工作日</label>
-      <label>重排方式<select id="replanMode"><option value="optimize">重新优化（保留原版，先预览）</option><option value="repair_only">仅修复硬冲突（可行旧版不变）</option></select></label>
-      <p class="hint">按资料就绪和申报前收尾窗口排期，奖励两周大会节奏，允许紧张时压缩、宽松时拉长及混合间隔。收尾窗口是可调整的软偏好，不是法规期限。人工锁定不擅自移动，若与工作日冲突会提示。</p>
-    </section>
-    <details hidden><summary>日历与计算范围</summary>
-      <p class="calendar-notice">已内置2024–2028年中、美、港假期；内地2027–2028年及香港2028年为暂定估算，待正式公布后更新。新版默认结合内地和香港日历，美国日历仅用于明确引用它的规则。美国为联邦假期，不等同交易所日历。未覆盖日期仅按周末处理并提示。</p>
-      <details><summary>查看内地暂定补班日</summary><p class="hint">2027：2月14日、5月8日、9月26日、10月9日；2028：1月22日、2月5日、4月8日、5月6日、9月30日、10月14日。以上均为排程假设，并非官方通知。</p></details>
-      <label class="button wide" for="importCalendar">导入日历 JSON<input type="file" id="importCalendar" accept=".json,application/json" hidden></label>
-      <button id="calendarSample" class="wide">下载日历格式示例</button><p id="calendarInfo" class="hint">尚未导入日历</p>
-      <label>搜索起日（可留空）<input type="date" id="horizonStart"></label>
-      <label>搜索止日（可留空）<input type="date" id="horizonEnd"></label>
-      <label>计算预算<select id="timeBudget"><option value="5000">5秒</option><option value="10000" selected>10秒</option><option value="20000">20秒</option></select></label>
-      <p class="hint">留空时按锚点前180日至后365日搜索。搜索范围不等于业务最早/最晚期限。</p>
-    </details>
-    <button id="run" class="primary wide">生成 / 重新试排</button>
-    <div class="button-row"><button id="cancel" disabled>停止计算</button><button id="earliestA1">试算最早 A1</button></div>
-    <p id="saveState" role="status" class="hint">尚未保存方案</p>
+  <aside class="settings" aria-label="项目设置">
+    <div class="settings-body">
+      <div class="heading"><h2>项目设置</h2><button id="newPlan" class="text-button">＋ 新建</button></div>
+      <label>当前方案<select id="planSelect"></select></label>
+      <details class="fold"><summary>方案管理</summary><label>方案名称<input id="planName" placeholder="输入方案名称"></label><div class="button-row"><button id="copyPlan">复制方案</button><button id="deletePlan" class="danger">删除方案</button></div></details>
+      <section><h3>关键日期</h3>
+        <label>财务数据安排<select id="financialMode"><option value="legacy" disabled>沿用原方案</option><option value="complete">完整报告期</option><option value="staged">分两阶段提供</option></select></label>
+        <p id="financialInfo" class="hint"></p>
+        <div id="anchorInputs"></div>
+        <label id="financialCoverageLabel" hidden>首批财务数据基准日<input type="date" id="financialBaseDate"></label><div id="firstAvailableInput"></div>
+      </section>
+      <details class="fold"><summary>更多设置</summary>
+        <label class="check" id="cybersecurityLabel" hidden><input type="checkbox" id="cybersecurity">开展网络安全及数据合规尽调</label>
+        <label>A1 申报节点<select id="a1Select"></select></label>
+        <label>重新排程时<select id="replanMode"><option value="optimize">优化时间表</option><option value="repair_only">仅修复硬冲突</option></select></label>
+        <button id="refreshFinancial" hidden>用新规则创建副本</button>
+      </details>
+    </div>
+    <div class="settings-footer"><button id="run" class="primary wide">生成排程</button><div class="secondary-actions"><button id="earliestA1" class="text-button">试算最早 A1</button><button id="cancel" disabled class="text-button">停止计算</button></div><p id="saveState" role="status" class="hint">方案保存在本机</p></div>
   </aside>
   <main>
-    <div class="main-heading"><div><small>WEEKLY SCHEDULE</small><h2 id="viewTitle">把事件规则变成项目时间表</h2><p id="viewSubtitle">输入锚点，再生成第一版推荐日期。</p></div><div id="summaryStats" class="stats"></div></div>
-    <div id="status" class="status" role="status" aria-live="polite">规则库、方案日期分开保存。试排不会覆盖你的事件信息。</div>
-    <div id="pendingBar" class="pending" hidden><div><strong id="pendingTitle">新结果待确认</strong><p id="pendingText"></p></div><div class="button-row"><button id="acceptResult" class="primary">采用此版本</button><button id="discardResult">放弃预览</button></div></div>
+    <section class="overview" aria-label="项目概览">
+      <div class="overview-main"><div class="eyebrow"><span></span> IPO TIMELINE</div><h2 id="viewTitle">项目时间表</h2><p id="viewSubtitle"></p></div>
+      <div id="summaryStats" class="stats"></div>
+    </section>
+    <div id="milestones" class="milestones" aria-label="项目关键日期"></div>
+    <div id="status" class="status" role="status" aria-live="polite" hidden></div>
+    <details id="resultNotes" class="notes" hidden><summary id="noteCount">排程提示</summary><ul id="noteList"></ul></details>
+    <div id="pendingBar" class="pending" hidden><div><strong id="pendingTitle">待确认排程</strong><p id="pendingText"></p></div><div class="button-row"><button id="discardResult">放弃预览</button><button id="acceptResult" class="primary">采用此版本</button></div></div>
     <div id="conflicts" hidden></div>
-    <div class="toolbar"><input id="search" type="search" aria-label="搜索事件" placeholder="搜索事件名称或编码"><select id="viewMode" aria-label="时间表视图"><option value="weeks">按周时间表</option><option value="list">事件清单</option><option value="changes">本次变动</option></select><button id="jumpStart">跳至启动</button><button id="jumpA1">跳至A1</button><button id="collapseAll">全部收起</button><button id="expandAll">全部展开</button><button id="exportCSV">导出日期表</button></div>
-    <div id="board" class="board"><div class="empty"><div class="empty-icon">日</div><h3>填写项目日期</h3><p>填写启动会、A1及申报基准日后生成时间表。</p></div></div>
-    <details id="historySection" class="history"><summary>已确认版本与恢复</summary><div id="historyList">还没有已确认的排程。</div></details>
+    <section class="schedule" aria-label="时间表">
+      <div class="section-head"><h3>项目时间表</h3><div id="legend" class="legend" hidden><span>事件</span><span>锚点</span><span>手动调整</span></div></div>
+      <div class="toolbar" id="boardTools" hidden><select id="viewMode" aria-label="时间表视图"><option value="weeks">按周查看</option><option value="list">事件清单</option><option value="changes">本次变动</option></select><input id="search" type="search" aria-label="搜索事件、编码或负责方" placeholder="搜索事件、编码或负责方"><details class="menu" id="boardMenu"><summary>时间表操作</summary><div><button id="jumpStart">定位启动周</button><button id="jumpA1">定位申报周</button><button id="collapseAll">收起全部条线</button><button id="expandAll">展开全部条线</button><button id="exportCSV">导出日期表</button></div></details></div>
+      <div id="board" class="board"></div><p class="board-foot" id="weekMoveHint" hidden>拖动卡片可调整单个事件的周次；点击卡片查看详情。</p>
+    </section>
+    <details id="historySection" class="history" hidden><summary>历史版本</summary><div id="historyList"></div></details>
   </main>
-  <aside id="inspector" class="inspector"><div class="heading"><h2>事件详情</h2><button id="closeInspector" aria-label="关闭详情">×</button></div><div id="eventDetails"><p class="muted">生成时间表后，点击任意事件查看日期依据、前后关系与人工锁定。</p></div></aside>
+  <aside id="inspector" class="inspector" aria-label="事件详情"><div class="heading"><h2>事件详情</h2><button id="closeInspector" aria-label="关闭详情">×</button></div><div id="eventDetails"></div></aside>
 </div>
-<div id="toast" class="toast" hidden role="status"></div>
-<script src="scheduler-engine.js?v=0.17.0"></script>
+<div id="toast" role="status" hidden></div>
+<script src="scheduler-engine.js?v=0.18.0"></script>
 <script src="scheduler-draft.js?v=0.1.0"></script>
 <script src="scheduler-rule-revision.js?v=0.2.0"></script>
 <script src="scheduler-prospectus-revision.js?v=0.3.0"></script>
@@ -89,8 +64,9 @@
 <script src="cloud-config.js?v=0.11.0"></script>
 <script src="scheduler-cloud-library.js?v=0.11.0"></script>
 <script src="scheduler-execution-revision.js?v=0.17.0"></script>
-<script src="scheduler-financial-planning.js?v=2026-11-13-v7"></script>
-<script src="scheduler-app.js?v=2026-11-13-v7"></script>
+<script src="scheduler-event-responsibilities.js?v=1"></script>
+<script src="scheduler-financial-planning.js?v=2026-11-27-roles"></script>
+<script src="scheduler-app.js?v=0.19.1"></script>
 </body>
 </html>
 

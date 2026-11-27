@@ -18,19 +18,9 @@ test('JS 引用的元素 id 都存在于 scheduler.html',()=>{
   assert.deepEqual(missing,[],'缺少元素：'+missing.join(', '));
 });
 
-test('后台入口已隐去：两处 details 置 hidden',()=>{
-  assert.equal((html.match(/<details hidden>/g)||[]).length,2);
-});
-
-test('四个排程开关已隐藏且默认勾选',()=>{
-  for(const id of ['spreadWeeks','keepPrevious','preferWorkingDays','a1BusinessDaysOnly']){
-    const pos=html.indexOf('id="'+id+'"');
-    assert.ok(pos>0,id+' 不存在');
-    const openTag=html.slice(html.lastIndexOf('<label',pos),html.indexOf('>',html.lastIndexOf('<label',pos))+1);
-    assert.ok(openTag.includes('class="check"'),id+' 应仍在 label.check 内');
-    assert.ok(openTag.includes('hidden'),id+' 所在 label 应带 hidden');
-    assert.ok(html.slice(pos,html.indexOf('>',pos)).includes('checked'),id+' 应默认勾选');
-  }
+test('用户页面不含后台管理、调试开关和版本标记',()=>{
+  for(const id of ['snapshotInfo','timeBudget','importRules','refreshCloud','preferWorkingDays','a1BusinessDaysOnly','keepPrevious','spreadWeeks'])assert(!html.includes('id="'+id+'"'),id);
+  assert(!html.includes('测试阶段'));assert(!html.includes('单事件调周版'));
 });
 
 // ---------- 行为检查 ----------
@@ -41,11 +31,11 @@ function plan(id,name,withTemplate){
     result:null,pending:null,history:[],dirty:true};
 }
 
-function boot(db,cloud){
+function boot(db,cloud,workerGlobals={}){
   const els={};
   for(const [,name] of html.matchAll(/\bid="([^"]+)"/g)){
     els[name]={value:'',innerHTML:'',textContent:'',checked:false,hidden:false,disabled:false,className:'',
-      classList:{add(){},remove(){}},selectedOptions:[{}],dataset:{},files:[]};
+      attrs:{},setAttribute(k,v){this.attrs[k]=v;},classList:{add(){},remove(){}},selectedOptions:[{}],dataset:{},files:[]};
   }
   const state={};
   if(db!==undefined)state['ipo-scheduler-plans-v1']=JSON.stringify(db);
@@ -62,13 +52,61 @@ function boot(db,cloud){
   const draft={window:{}};
   vm.runInNewContext(fs.readFileSync('scheduler-draft.js','utf8'),draft);
   window.IPO_DRAFT_RULES=draft.window.IPO_DRAFT_RULES;
-  const context={window,document:{getElementById:id=>els[id]},localStorage:storage,setTimeout,clearTimeout,
+  const context={window,document:{getElementById:id=>els[id],createElement:()=>({click(){},remove(){}}),body:{appendChild(){}}},localStorage:storage,setTimeout,clearTimeout,...workerGlobals,
     crypto:{randomUUID:(()=>{let n=0;return()=>'new-'+(++n);})()}};
   vm.createContext(context);
   vm.runInContext(appSource,context);
   const read=()=>JSON.parse(state['ipo-scheduler-plans-v1']||'null');
   return {els,state,window,read};
 }
+
+test('调周只改一个日期，失败不写入；放弃恢复原预览，采用后写入历史',()=>{
+  const p=plan('p','调周',true);
+  const event=(id,fixed,from)=>({id,name:id,code:id,threadId:'t',dateMode:fixed?'anchor_input':'calculated',dependencies:from?[{id:from+id,predecessorEventId:from,minLag:1,targetLag:null,maxLag:null,unit:'calendar_day',calendar:'inherit',strength:'hard'}]:[]});
+  p.template={project:{defaultCalendar:'hk',calculatedWorkingDaysOnly:true},lanes:[{id:'l',name:'l'}],threads:[{id:'t',laneId:'l',name:'t'}],events:[event('s',true),event('x',false,'s'),event('y',false,'x'),event('a',true,'y')]};
+  Object.assign(p.settings,{anchorDates:{s:'2026-07-06',a:'2026-08-03'},a1Id:'a',horizonStart:'2026-07-06',horizonEnd:'2026-08-03'});
+  const dates={...p.settings.anchorDates,x:'2026-07-14',y:'2026-07-24'};
+  p.pending={id:'first',at:'2026-07-01',run:{status:'feasible',dates,horizon:{start:p.settings.horizonStart,end:p.settings.horizonEnd}},settings:p.settings};
+  const original=JSON.parse(JSON.stringify(p.pending)),initial={version:1,plans:[p],currentId:p.id};
+  class Worker {terminate(){} postMessage({template,settings,weekMove:m}){this.onmessage({data:{result:E.moveEventWeek(template,settings,m.dates,m.id,m.week)}});}}
+  const box=boot(initial,null,{Worker,Blob,URL}),b=box.els.board;
+  box.els.viewMode.value='weeks';box.els.viewMode.onchange();
+  assert(b.innerHTML.includes('draggable="true"'));assert(b.innerHTML.includes('data-week="2026-07-27"'));
+  function drag(week){b.ondragstart({target:{closest:()=>({dataset:{event:'x'}})},dataTransfer:{setData(){}}});b.ondrop({target:{closest:()=>({dataset:{thread:'t',week}})},preventDefault(){}});}
+  drag('2026-07-27');assert.deepEqual(box.read(),initial);
+  drag('2026-07-20');let q=box.read().plans[0];assert.deepEqual(q.pending.run.dates,{...dates,x:'2026-07-21'});assert.deepEqual(q.pending.beforeWeekEdits,original);
+  drag('2026-07-27');assert.deepEqual(box.read().plans[0],q);
+  drag('2026-07-06');assert.deepEqual(box.read().plans[0].pending.beforeWeekEdits,original);
+  box.els.discardResult.onclick();assert.deepEqual(box.read().plans[0].pending,original);
+  drag('2026-07-20');box.els.acceptResult.onclick();q=box.read().plans[0];assert.equal(q.pending,null);assert.deepEqual(q.result.run.dates,{...dates,x:'2026-07-21'});assert.deepEqual(q.settings.locks,{});assert(!('beforeWeekEdits' in q.result));assert.deepEqual(q.history[0].run.dates,q.result.run.dates);
+});
+
+test('旧方案展示负责方；清单、检索和导出读取相同分工且不改原方案',()=>{
+  const p=plan('roles','已有排程',true);
+  const [model,audit]=['EVT-040','EVT-027'].map(code=>{
+    const {responsibility,...record}=seed.events.find(e=>e.code===code);return {...record,dependencies:[]};
+  });
+  p.template={project:seed.project,threads:seed.threads,lanes:seed.lanes,events:[model,audit]};
+  p.result={run:{dates:{[model.id]:'2026-07-08',[audit.id]:'2026-07-07'},horizon:{start:'2026-07-06',end:'2026-07-10'}},settings:p.settings};
+  const original={version:1,currentId:p.id,plans:[p]},files=[];
+  const box=boot(original,null,{Blob:class{constructor(parts){this.text=parts.join('');}},URL:{createObjectURL:b=>(files.push(b.text),'mock'),revokeObjectURL(){}}});
+  const els=box.els;els.viewMode.value='list';els.viewMode.onchange();
+  assert(els.board.innerHTML.includes('<th>负责方</th>'));assert(els.board.innerHTML.includes('保荐人'));
+  els.search.value='审计师';els.search.oninput();assert(els.board.innerHTML.includes(audit.code));assert(!els.board.innerHTML.includes(model.code));
+  els.board.onclick({target:{closest:s=>s==='[data-event]'?{dataset:{event:model.id}}:null}});
+  assert(els.eventDetails.innerHTML.includes('负责方：</strong>保荐人'));assert(els.eventDetails.innerHTML.includes('配合方：公司、审计师'));
+  els.exportCSV.onclick();assert(files[0].includes('"负责方","配合方","分工依据"'));assert(files[0].includes('"保荐人","公司、审计师","案例分工"'));
+  els.exportPlan.onclick();const exported=JSON.parse(files[1]).plan;
+  assert.deepEqual(exported.template.events[0].responsibility.responsible,['保荐人']);assert.deepEqual(exported.result,p.result);assert.deepEqual(box.read(),original);
+});
+
+test('演示切换不修改方案，未排程时隐藏结果工具',()=>{
+  const original={version:1,currentId:'p',plans:[plan('p','演示项目',true)]},box=boot(original);
+  assert.equal(box.els.boardTools.hidden,true);assert.equal(box.els.resultNotes.hidden,true);
+  box.els.presentation.onclick();assert.equal(box.els.presentation.attrs['aria-pressed'],'true');
+  box.els.presentation.onclick();assert.equal(box.els.presentation.attrs['aria-pressed'],'false');
+  assert.deepEqual(box.read(),original);
+});
 
 test('载入已有方案时存储一字不动',()=>{
   const db={version:1,currentId:'p1',plans:[plan('p1','方案甲',true),plan('p2','方案乙',true)]};
@@ -165,7 +203,7 @@ function cloudStub(version,tag){
   await testAsync('首屏立即用内置包渲染，不等云端返回',async()=>{
     const box=boot(undefined,cloudStub('cloud-v1','1'));
     // boot() 内 vm 已同步执行完毕：此刻应已挂上事件库，而不是“未载入”空壳
-    assert.equal(box.els.eventCount.textContent,(seed.events.length+36)+' 个事件');
+    assert.ok(box.els.summaryStats.innerHTML.includes('<strong>'+(seed.events.length+36)+'</strong><span>事件</span>'));
     assert.ok(box.els.planSelect.innerHTML.includes('未命名排程方案'),'应已出现当前方案');
   });
 
@@ -201,8 +239,8 @@ function cloudStub(version,tag){
       return {mode:'builtin',release:null,data:{rules:seed,agenda:[],calendars:{hk:CAL,cn:CAL,us:CAL}}};}};
     const box=boot(undefined,builtin);
     await new Promise(r=>setTimeout(r,120));
-    assert.equal(box.els.eventCount.textContent,(seed.events.length+36)+' 个事件','兜底时界面照常可用');
-    assert.ok(String(box.els.snapshotInfo.textContent).includes('内置'),'来源仍应是内置包');
+    assert.ok(box.els.summaryStats.innerHTML.includes('<strong>'+(seed.events.length+36)+'</strong><span>事件</span>'),'兜底时界面照常可用');
+    assert.equal(box.read(),null,'兜底不写入本地方案');
     assert.ok(!String(box.els.toast.textContent).includes('已切换到云端'),'不应提示已切换到云端');
   });
 

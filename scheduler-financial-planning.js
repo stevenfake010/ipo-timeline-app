@@ -2,6 +2,7 @@
 (function(root){
   'use strict';
   const execution=typeof module!=='undefined'&&module.exports?require('./scheduler-execution-revision'):root.IPOExecutionRevision;
+  const responsibilities=typeof module!=='undefined'&&module.exports?require('./scheduler-event-responsibilities'):root.IPOEventResponsibilities;
   const VERSION='2026-11-13-execution-v7',copy=x=>JSON.parse(JSON.stringify(x));
   function supported(t){return !!t&&t.ruleRevision==='2026-10-30-r8'&&!t.financialStrategy&&Array.isArray(t.events)&&!t.events.some(e=>/^EVT-16[2-8]$/.test(e.code)||/^finance-v1-/.test(e.id))&&['EVT-027','EVT-028','EVT-029','EVT-030','EVT-035','EVT-036','EVT-038','EVT-040','EVT-041','EVT-042','EVT-043','EVT-044','EVT-079','EVT-081','EVT-084','EVT-085','EVT-153'].every(c=>t.events.some(e=>e.code===c));}
   function create(input,mode='complete',options={}){
@@ -117,7 +118,7 @@
       t.planningPolicy.eventLayoutWeights[get('EVT-141').id]=6;
     }
     appendExecutionThreads(t);
-    return execution.apply(t,options);
+    return responsibilities.enrich(execution.apply(t,options));
   }
   // Scheduling defaults, not legal notice periods or registration approval deadlines.
   // Appended only to new/revised copies; saved plans and the source library stay unchanged.
@@ -161,5 +162,5 @@
     target(180,-55);target(181,-50);target(182,-40);target(183,-25);target(184,-20);
     t.executionRevision=VERSION;
   }
-  const api={VERSION,supported,create};if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.IPOFinancialPlanning=api;
+  const api={VERSION,supported,create,responsibilities};if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.IPOFinancialPlanning=api;
 })(typeof globalThis!=='undefined'?globalThis:this);
