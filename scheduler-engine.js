@@ -1,7 +1,7 @@
 /* IPO scheduler, offline and dependency-free. Shared by Web Worker and Node tests. */
 (function engineFactory(root) {
   'use strict';
-  const VERSION = '0.17.0';
+  const VERSION = '0.18.0';
   const DAY = 86400000;
   function parseDate(s) {
     if (typeof s !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(s)) throw new Error('日期须为 YYYY-MM-DD');
@@ -430,11 +430,7 @@
     }
     const beforeCoordinated=bestScore.slice();
     const groupOf=new Map();gs.forEach(g=>g.forEach(i=>groupOf.set(i,g)));
-    function collisionPairs(days){
-      const pairs=[];
-      for(let i=0;i<c.events.length;i++)for(let j=i+1;j<c.events.length;j++)if(penalizeSameWeek(c.events[i],c.events[j])&&c.events[i].dateMode!=='anchor_input'&&c.events[j].dateMode!=='anchor_input'&&c.events[i].threadId===c.events[j].threadId&&groupOf.get(i)!==groupOf.get(j)&&week(days[i])===week(days[j]))pairs.push({i,j,key:i+':'+j});
-      return pairs;
-    }
+    const collisionPairs=days=>sameWeekPairs(c,groupOf,days);
     // Single-event moves can get stuck at a neighbor's hard bound. Move the necessary
     // chain together: for a later move, keep every date >= its current date and take
     // the least propagated vector; for an earlier move, use <= and the greatest vector.
@@ -544,7 +540,20 @@
       }
       if(!improved)break;
     }
-    const dates=dateMap(best), verification=verify(template,{...settings,horizonStart:iso(c.start),horizonEnd:iso(c.end)},dates);
+    const report=describeSchedule(c,best,hardDomains,collisionPairs(best));
+    if(report.status!=='feasible')return report;
+    return {...report,candidates,coordinatedMoves,jointMoves,threadMoves,beforeCoordinatedScore:beforeCoordinated,elapsedMs:Date.now()-started,
+      earliestA1Proven:minimumReleased!==null && best[c.index.get(settings.releaseAnchorId)]===minimumReleased};
+  }
+  function sameWeekPairs(c,groupOf,days){
+    const pairs=[];
+    for(let i=0;i<c.events.length;i++)for(let j=i+1;j<c.events.length;j++)if(penalizeSameWeek(c.events[i],c.events[j])&&c.events[i].dateMode!=='anchor_input'&&c.events[j].dateMode!=='anchor_input'&&c.events[i].threadId===c.events[j].threadId&&groupOf.get(i)!==groupOf.get(j)&&week(days[i])===week(days[j]))pairs.push({i,j,key:i+':'+j});
+    return pairs;
+  }
+  // Both automatic and manual results use the same independent verification and diagnostics.
+  function describeSchedule(c,best,hardDomains,pairs){
+    const {template,settings}=c,dates=Object.fromEntries(c.events.map((e,i)=>[e.id,iso(best[i])]));
+    const verification=verify(template,{...settings,horizonStart:iso(c.start),horizonEnd:iso(c.end)},dates);
     if(verification.length)return {status:'invalid',errors:['独立复核失败，未保存结果。',...verification]};
     const details={};
     for(let i=0;i<c.events.length;i++){
@@ -555,7 +564,7 @@
       details[e.id]={date:dates[e.id],softWindow:w?{earliest:iso(w[0]),latest:iso(w[1]),satisfied:best[i]>=w[0]&&best[i]<=w[1]}:null,derivedStart:iso(hardDomains[i][0]),derivedEnd:iso(hardDomains[i].at(-1)),movableDates:allowed.map(iso),sameWeek,
         rules:touching.map(x=>{const[l,u]=bounds(c,x,best[x.a]),target=x.targetLag==null?null:c.calendars.add(best[x.a],x.targetLag,x.unit,x.calendar);return{id:x.id,predecessorId:c.events[x.a].id,successorId:c.events[x.b].id,strength:x.strength,earliest:iso(l),latest:Number.isFinite(u)?iso(u):null,target:target==null?null:iso(target),deviationDays:target==null?null:best[x.b]-target,satisfied:best[x.b]>=l&&best[x.b]<=u};})};
     }
-    const weekCollisions=collisionPairs(best).map(({i,j})=>{
+    const weekCollisions=pairs.map(({i,j})=>{
       const wi=new Set(hardDomains[i].map(week)),wj=new Set(hardDomains[j].map(week));
       const forced=wi.size===1&&wj.size===1&&[...wi][0]===[...wj][0];
       return {eventIds:[c.events[i].id,c.events[j].id],weekStart:iso(week(best[i])),forcedByHardWindows:forced,
@@ -566,9 +575,41 @@
     if(template.sponsorReviewPolicy){const p=template.sponsorReviewPolicy,from=parseDate(dates[p.draftEventId]),to=parseDate(dates[p.signEventId]),calendar=c.calendars.get(template.project.defaultCalendar||'hk');let days=0;for(let d=from+1;d<=to;d++)if(calendar.isWorking(d))days++;if(days<p.targetDays)c.warnings.push('保荐协议审阅仅安排'+days+'个项目工作日，少于目标'+p.targetDays+'个；申报提前期硬要求已满足，需确认协议准备及审阅能否按此压缩。');}
     const debtAssessment=assessDebt(template,settings,dates);if(debtAssessment&&!debtAssessment.bufferTargetMet)c.warnings.push('债项完成至A1仅有'+debtAssessment.bufferWorkdays+'个项目工作日，少于目标5个；硬条件通过，但缓冲偏紧。');
     for(const e of c.events){const w=details[e.id].softWindow;if(w&&!w.satisfied)c.warnings.push(e.code+' '+e.name+'未落在建议收尾窗口 '+w.earliest+' 至 '+w.latest+'；属于软偏好偏离，需复核或继续优化。');}
-    return {status:'feasible',version:VERSION,dates,details,debtAssessment,score:canonicalScore,scoreVersion:2,metrics:{nonWorkingEvents:canonicalScore[1],softViolationDays:canonicalScore[2],qualityCost:canonicalScore[3],sameWeekPairs:canonicalScore[4],targetDeviationDays:canonicalScore[5],movedEvents:canonicalScore[6],shiftDays:canonicalScore[7]},weekCollisions,verified:true,optimal:false,candidates,coordinatedMoves,jointMoves,threadMoves,beforeCoordinatedScore:beforeCoordinated,elapsedMs:Date.now()-started,
-      earliestA1Proven:minimumReleased!==null && best[c.index.get(settings.releaseAnchorId)]===minimumReleased,
+    return {status:'feasible',version:VERSION,dates,details,debtAssessment,score:canonicalScore,scoreVersion:2,metrics:{nonWorkingEvents:canonicalScore[1],softViolationDays:canonicalScore[2],qualityCost:canonicalScore[3],sameWeekPairs:canonicalScore[4],targetDeviationDays:canonicalScore[5],movedEvents:canonicalScore[6],shiftDays:canonicalScore[7]},weekCollisions,verified:true,optimal:false,
       warnings:c.warnings,horizon:{start:iso(c.start),end:iso(c.end)},message:'硬条件全部通过独立复核；优先工作日，综合权衡错周、目标间隔及改期成本。未证明全局最优。'};
+  }
+  // A week edit is not a re-solve: try only the seven dates for this event.
+  function moveEventWeek(template,settings,dates,eventId,monday){
+    const reject=(...errors)=>({status:'invalid',errors});
+    const event=template.events.find(e=>e.id===eventId);
+    if(!event||event.dateMode!=='calculated'||settings.locks?.[eventId]||settings.anchorDates?.[eventId])return reject('锚点或已锁定日期不能通过拖动修改。');
+    if(settings.releaseAnchorId)return reject('请先确认最早 A1 备选方案，再调整事件周次。');
+    const start=parseDate(monday),old=parseDate(dates[eventId]);
+    if(week(start)!==start||week(old)===start)return reject('请选择不同的目标周（周一至周日）。');
+    const c=compile(template,{...settings,previousDates:dates}),cal=c.calendars.get(template.project.defaultCalendar||'hk');
+    const bounded={...settings,horizonStart:iso(c.start),horizonEnd:iso(c.end)};
+    const days=Array.from({length:7},(_,i)=>start+i).sort((a,b)=>Number(cal.isWorking(b))-Number(cal.isWorking(a))||Math.abs(weekday(a)-weekday(old))-Math.abs(weekday(b)-weekday(old))||a-b);
+    const reasons=new Set();
+    for(const day of days){
+      const candidate={...dates,[eventId]:iso(day)},issues=verify(template,bounded,candidate);
+      if(issues.length){
+        // Translate internal relation IDs into actionable predecessor/successor names.
+        for(const issue of issues){
+          const edge=c.hard.find(d=>issue.includes('违反关系 '+d.id+'：'));
+          reasons.add(edge?c.events[edge.a].name+' → '+c.events[edge.b].name+' 的硬间隔不满足':issue);
+        }
+        continue;
+      }
+      // Propagate only to refresh diagnostic windows; never take dates from those domains.
+      const allowed=propagate(c,c.domains,Date.now()+10000);
+      if(!allowed.domains)return reject('未能完成调整后的复核，原表未变。');
+      const values=c.events.map(e=>parseDate(candidate[e.id])),groupOf=new Map();
+      groups(c).forEach((g,i)=>g.forEach(j=>groupOf.set(j,i)));
+      const result=describeSchedule(c,values,allowed.domains,sameWeekPairs(c,groupOf,values));
+      if(result.status==='feasible')result.message=event.code+' '+event.name+'：'+dates[eventId]+' → '+candidate[eventId]+'。仅此事件改期，其他事件日期不变。';
+      return result;
+    }
+    return reject(event.name+' 无法单独移至 '+monday+' 当周，原表未变。',...[...reasons].slice(0,4));
   }
   function solve(template,settings={},progress=()=>{}){
     if(template.planningPolicy&&settings.replanMode!=='repair_only')return solveFlexible(template,settings,progress);
@@ -631,7 +672,7 @@
     best.message='硬条件全部通过独立复核；优先实际业务间隔和材料就绪，偏好两周会议节奏，并比较混合间隔候选。未证明全局最优。';
     return{...best,elapsedMs:Date.now()-started,searchStarts:attempts};
   }
-  const api={VERSION,parseDate,iso,week,weekday,validateTemplate,createCalendars,compile,propagate,solve,verify,assessDebt};
-  api.workerSource='('+engineFactory.toString()+')(self); self.onmessage=function(event){ try { const p=event.data; const result=IPOScheduler.solve(p.template,p.settings,progress=>self.postMessage({progress})); self.postMessage({result}); } catch(error) { self.postMessage({result:{status:"invalid",errors:[error.message]}}); }};';
+  const api={VERSION,parseDate,iso,week,weekday,validateTemplate,createCalendars,compile,propagate,solve,verify,assessDebt,moveEventWeek};
+  api.workerSource='('+engineFactory.toString()+')(self); self.onmessage=function(event){ try { const p=event.data; const result=p.weekMove?IPOScheduler.moveEventWeek(p.template,p.settings,p.weekMove.dates,p.weekMove.id,p.weekMove.week):IPOScheduler.solve(p.template,p.settings,progress=>self.postMessage({progress})); self.postMessage({result}); } catch(error) { self.postMessage({result:{status:"invalid",errors:[error.message]}}); }};';
   if(typeof module!=='undefined' && module.exports)module.exports=api;else root.IPOScheduler=api;
 })(typeof globalThis!=='undefined'?globalThis:this);
